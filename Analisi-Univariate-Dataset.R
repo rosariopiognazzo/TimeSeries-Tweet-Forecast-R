@@ -1,4 +1,3 @@
-
 library(jsonlite)#per convertire hashtags
 library(readr)
 library(dplyr)
@@ -28,11 +27,6 @@ dataset$hashtags[dataset$hashtags == ""] <- "[]"
 dataset$hashtags <- lapply(dataset$hashtags, fromJSON)
 
 write_csv2(dataset, "dataset.csv")#salvato nuovo dataset
-
-
-# Visualizza i valori mancanti in ogni colonna
-missing_data <- sapply(dataset, function(x) sum(is.na(x)))
-print(missing_data)
 
 
 
