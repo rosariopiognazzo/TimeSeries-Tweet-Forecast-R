@@ -9,7 +9,7 @@ library(gridExtra)
 
 
 #carichiamo il dataset in R
-Sentiment_fr_tweet_2023 <- read_csv2("Sentiment_fr_tweet_2023.csv")
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
 
 #non si lavora mai sul dataset raw, ma su una copia
 dataset <- Sentiment_fr_tweet_2023
@@ -269,4 +269,19 @@ create_comparison_plot("following", "pareto", c(3000, 1800, 500)) # c(bin datase
 create_comparison_plot("following", "qqplot")
 
 
+
+dataset %>%
+  filter(is_retweet == 1) %>%
+  summarise(
+    n_retweet = n()
+  )
+
+
+## analizzare come sottoinsieme i tweet che sono retweet di altri tweet, 
+## e vedere come questi si distribuiscono nel dataset ossia cercare delle tendenze
+## come i retweet neg, pos, neutri come aumentano nel corso del tempo?
+## Cercare di dminuire la grandezza del dataset aggregando i valori: Contare se ci sono userID
+## uguali che hanno tweettato o retweettato più volte e contare il numero di tweet pos, neg e neu e identificare quindi 
+## quel profilo come NEU, POS, NEG rispetto alla guerra--> fare questo per ogni utente presente
+## ci permette di categorizzare gli utenti e fare analisi su un dataset con questi nuovi oggetti.
 
