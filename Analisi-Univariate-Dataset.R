@@ -267,3 +267,6 @@ create_comparison_plot("following", "boxplot")
 create_comparison_plot("following", "histogram")
 create_comparison_plot("following", "pareto", c(3000, 1800, 500)) # c(bin dataset con outliers, bin dataset senza i grandi, bin dataset senza tutti)
 create_comparison_plot("following", "qqplot")
+
+
+
