@@ -71,6 +71,73 @@ ggplot(dataset, aes(x = sentiment, y = favorite_count, fill = sentiment)) +
 #le categorie, suggerendo che i tweet con molti retweet sono 
 #eventi rari.
 
+# Conversione delle colonne in formato temporale
+dataset$created_at <- as.POSIXct(dataset$tweetcreatedts, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+dataset$user_created_at <- as.POSIXct(dataset$usercreatedts, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+
+# Creare una colonna con la data (senza ora)
+dataset$date <- as.Date(dataset$created_at)
+
+# Contare il numero di tweet per giorno
+tweets_per_day <- dataset %>%
+  group_by(date) %>%
+  summarise(tweet_count = n())
+
+# Visualizzare la frequenza dei tweet nel tempo
+ggplot(tweets_per_day, aes(x = date, y = tweet_count)) +
+  geom_line() +
+  labs(title = "Frequenza dei Tweet nel Tempo",
+       x = "Data", y = "Numero di Tweet") +
+  theme_minimal()
+
+# Creare una colonna per il numero di follower
+dataset$followers_day <- as.Date(dataset$created_at)
+
+# Raggruppare per utente e data per analizzare l'evoluzione 
+#dei follower
+followers_over_time <- dataset %>%
+  group_by(userid, followers_day) %>%
+  summarise(follower_count = max(followers, na.rm = TRUE))
+
+# Visualizzare l'evoluzione dei follower nel tempo per un 
+#utente specifico
+# Raggruppare per userid e contare i tweet per ogni utente
+tweet_counts <- dataset %>%
+  group_by(userid) %>%
+  summarise(tweet_count = n()) %>%
+  arrange(desc(tweet_count))  # Ordinare in ordine decrescente
+
+# Estrai l'user_id dell'utente con il maggior numero di tweet
+user_with_most_tweets <- tweet_counts[1, "userid"]
+
+# Stampa l'user_id
+print(user_with_most_tweets)
+
+# Ora prova a filtrare per l'user_id "1.59e18" come stringa
+ggplot(followers_over_time %>% filter(userid == 2,21E+09), aes(x = followers_day, y = follower_count)) +
+  geom_line() +
+  labs(title = "Evoluzione dei Follower nel Tempo",
+       x = "Data", y = "Numero di Follower") +
+  theme_minimal()
+
+
+# Calcolare il z-score per identificare i picchi
+tweets_per_day$z_score <- (tweets_per_day$tweet_count - mean(tweets_per_day$tweet_count)) / sd(tweets_per_day$tweet_count)
+
+# Identificare i picchi (ad esempio, dove il z-score è maggiore di 2)
+peaks <- tweets_per_day %>%
+  filter(z_score > 2)
+
+# Visualizzare i picchi nel grafico
+ggplot(tweets_per_day, aes(x = date, y = tweet_count)) +
+  geom_line() +
+  geom_point(data = peaks, aes(x = date, y = tweet_count), color = "red", size = 3) +
+  labs(title = "Frequenza dei Tweet con Picchi Rilevanti",
+       x = "Data", y = "Numero di Tweet") +
+  theme_minimal()
+#fine
+
+
 # Selezione delle colonne pertinenti
 dataset_filtered <- dataset %>%
   select(retweetcount, favorite_count, sentiment)
@@ -118,6 +185,7 @@ fviz_cluster(kmeans_result, data = dataset_scaled,
 #Ciò significa che i dati sono parzialmente ben rappresentati 
 #in questo spazio bidimensionale, ma ci potrebbero essere altre 
 #caratteristiche rilevanti non visualizzate in questo grafico.
-
+# Visualizza la struttura del dataset
+# Verifica che ci siano dati per l'user_id "1.59e18"
 
 
