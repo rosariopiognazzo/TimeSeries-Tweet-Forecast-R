@@ -99,26 +99,25 @@ followers_over_time <- dataset %>%
   group_by(userid, followers_day) %>%
   summarise(follower_count = max(followers, na.rm = TRUE))
 
+
+# Trova l'userid con il massimo numero di follower
+max_followers_user <- dataset %>%
+  group_by(userid) %>%
+  summarise(total_followers = max(followers, na.rm = TRUE)) %>%
+  arrange(desc(total_followers)) %>%
+  slice(1)  # Prendi il primo (l'utente con più follower)
+
+# Stampa l'userid con il massimo numero di follower
+print(max_followers_user$userid)
+
 # Visualizzare l'evoluzione dei follower nel tempo per un 
 #utente specifico
-# Raggruppare per userid e contare i tweet per ogni utente
-tweet_counts <- dataset %>%
-  group_by(userid) %>%
-  summarise(tweet_count = n()) %>%
-  arrange(desc(tweet_count))  # Ordinare in ordine decrescente
-
-# Estrai l'user_id dell'utente con il maggior numero di tweet
-user_with_most_tweets <- tweet_counts[1, "userid"]
-
-# Stampa l'user_id
-print(user_with_most_tweets)
-
-# Ora prova a filtrare per l'user_id "1.59e18" come stringa
-ggplot(followers_over_time %>% filter(userid == 2,21E+09), aes(x = followers_day, y = follower_count)) +
+ggplot(followers_over_time %>% filter(userid == "24744541"), aes(x = followers_day, y = follower_count)) +
   geom_line() +
   labs(title = "Evoluzione dei Follower nel Tempo",
        x = "Data", y = "Numero di Follower") +
   theme_minimal()
+
 
 
 # Calcolare il z-score per identificare i picchi
@@ -126,7 +125,7 @@ tweets_per_day$z_score <- (tweets_per_day$tweet_count - mean(tweets_per_day$twee
 
 # Identificare i picchi (ad esempio, dove il z-score è maggiore di 2)
 peaks <- tweets_per_day %>%
-  filter(z_score > 2)
+  filter(z_score < 2)
 
 # Visualizzare i picchi nel grafico
 ggplot(tweets_per_day, aes(x = date, y = tweet_count)) +
@@ -189,3 +188,9 @@ fviz_cluster(kmeans_result, data = dataset_scaled,
 # Verifica che ci siano dati per l'user_id "1.59e18"
 
 
+# Verifica se ci sono dati per l'userid specifico
+subset_data <- followers_over_time %>% filter(userid == "1.59e18")
+print(subset_data)
+
+# Mostra i primi 10 userid unici nel dataset
+head(unique(followers_over_time$userid), 10)
