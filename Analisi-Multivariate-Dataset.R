@@ -3,6 +3,8 @@ library(dplyr)
 library(corrplot)
 library(dplyr)
 library(ggplot2)
+library(factoextra)
+
 #carichiamo il dataset in R
 dataset <- read_csv2("C:/Users/Utente/Documenti/Dataset.csv")
 
@@ -104,4 +106,18 @@ fviz_cluster(kmeans_result, data = dataset_scaled,
              ellipse.type = "convex",
              palette = "jco",
              ggtheme = theme_minimal())
+
+#Osservazione:
+#La maggior parte dei dati sembra essere concentrata vicino 
+#all'origine, mentre un punto del cluster 3 (quadrato grigio) 
+#è notevolmente distante dagli altri, probabilmente un outlier 
+#o un'anomalia nei dati.
+#Le due dimensioni (Dim1 e Dim2) spiegano rispettivamente 
+#il 33.8% e il 33.3% della varianza, quindi insieme 
+#rappresentano circa il 67% della varianza totale. 
+#Ciò significa che i dati sono parzialmente ben rappresentati 
+#in questo spazio bidimensionale, ma ci potrebbero essere altre 
+#caratteristiche rilevanti non visualizzate in questo grafico.
+
+
 
