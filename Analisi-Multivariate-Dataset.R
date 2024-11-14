@@ -71,12 +71,6 @@ ggplot(dataset, aes(x = sentiment, y = favorite_count, fill = sentiment)) +
 #le categorie, suggerendo che i tweet con molti retweet sono 
 #eventi rari.
 
-# Conversione delle colonne in formato temporale
-dataset$created_at <- as.POSIXct(dataset$tweetcreatedts, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
-dataset$user_created_at <- as.POSIXct(dataset$usercreatedts, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
-
-# Creare una colonna con la data (senza ora)
-dataset$date <- as.Date(dataset$created_at)
 
 # Contare il numero di tweet per giorno
 tweets_per_day <- dataset %>%
@@ -90,50 +84,27 @@ ggplot(tweets_per_day, aes(x = date, y = tweet_count)) +
        x = "Data", y = "Numero di Tweet") +
   theme_minimal()
 
-# Creare una colonna per il numero di follower
-dataset$followers_day <- as.Date(dataset$created_at)
+# Contare il numero di tweet per giorno e per sentiment
+tweets_per_day_sentiment <- dataset %>%
+  group_by(date, sentiment) %>%
+  summarise(tweet_count = n()) %>%
+  ungroup()
 
-# Raggruppare per utente e data per analizzare l'evoluzione 
-#dei follower
-followers_over_time <- dataset %>%
-  group_by(userid, followers_day) %>%
-  summarise(follower_count = max(followers, na.rm = TRUE))
+# Calcolare la proporzione di ciascun sentiment per giorno
+tweets_per_day_sentiment <- tweets_per_day_sentiment %>%
+  group_by(date) %>%
+  mutate(total_tweets = sum(tweet_count),
+         proportion = tweet_count / total_tweets) %>%
+  ungroup()
 
+# Visualizzazione con un grafico a barre impilato per la proporzione di sentiment per giorno
+ggplot(tweets_per_day_sentiment, aes(x = date, y = proportion, fill = sentiment)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Proporzione di tweet per tipo di sentiment nel tempo",
+       x = "Data", y = "Proporzione") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Trova l'userid con il massimo numero di follower
-max_followers_user <- dataset %>%
-  group_by(userid) %>%
-  summarise(total_followers = max(followers, na.rm = TRUE)) %>%
-  arrange(desc(total_followers)) %>%
-  slice(1)  # Prendi il primo (l'utente con più follower)
-
-# Stampa l'userid con il massimo numero di follower
-print(max_followers_user$userid)
-
-# Visualizzare l'evoluzione dei follower nel tempo per un 
-#utente specifico
-ggplot(followers_over_time %>% filter(userid == "24744541"), aes(x = followers_day, y = follower_count)) +
-  geom_line() +
-  labs(title = "Evoluzione dei Follower nel Tempo",
-       x = "Data", y = "Numero di Follower") +
-  theme_minimal()
-
-
-
-# Calcolare il z-score per identificare i picchi
-tweets_per_day$z_score <- (tweets_per_day$tweet_count - mean(tweets_per_day$tweet_count)) / sd(tweets_per_day$tweet_count)
-
-# Identificare i picchi (ad esempio, dove il z-score è maggiore di 2)
-peaks <- tweets_per_day %>%
-  filter(z_score < 2)
-
-# Visualizzare i picchi nel grafico
-ggplot(tweets_per_day, aes(x = date, y = tweet_count)) +
-  geom_line() +
-  geom_point(data = peaks, aes(x = date, y = tweet_count), color = "red", size = 3) +
-  labs(title = "Frequenza dei Tweet con Picchi Rilevanti",
-       x = "Data", y = "Numero di Tweet") +
-  theme_minimal()
 #fine
 
 
@@ -184,13 +155,6 @@ fviz_cluster(kmeans_result, data = dataset_scaled,
 #Ciò significa che i dati sono parzialmente ben rappresentati 
 #in questo spazio bidimensionale, ma ci potrebbero essere altre 
 #caratteristiche rilevanti non visualizzate in questo grafico.
-# Visualizza la struttura del dataset
-# Verifica che ci siano dati per l'user_id "1.59e18"
 
 
-# Verifica se ci sono dati per l'userid specifico
-subset_data <- followers_over_time %>% filter(userid == "1.59e18")
-print(subset_data)
 
-# Mostra i primi 10 userid unici nel dataset
-head(unique(followers_over_time$userid), 10)
