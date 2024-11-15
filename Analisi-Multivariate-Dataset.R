@@ -36,43 +36,16 @@ corrplot(cor_matrix, method = "color", type = "upper",
 #persone tendono a fare un numero maggiore di tweet, anche se 
 #la correlazione non è molto forte.
 
-# Calcoliamo la media di retweetcount e favorite_count per ciascun 
-#tipo di sentiment
-mean_values <- dataset %>%
-  group_by(sentiment) %>%
-  summarise(mean_retweetcount = mean(retweetcount, na.rm = TRUE),
-            mean_favorite_count = mean(favorite_count, na.rm = TRUE))
-
-# Stampa delle medie
-print(mean_values)
-
-# Boxplot per visualizzare la distribuzione di retweetcount per ciascun sentiment
-ggplot(dataset, aes(x = sentiment, y = retweetcount, fill = sentiment)) +
-  geom_boxplot() +
-  labs(title = "Distribuzione dei retweet per ciascun sentiment",
-       x = "Sentiment", y = "Retweet Count") +
-  theme_minimal()
-
-# Boxplot per visualizzare la distribuzione di favorite_count per ciascun sentiment
-ggplot(dataset, aes(x = sentiment, y = favorite_count, fill = sentiment)) +
-  geom_boxplot() +
-  labs(title = "Distribuzione dei like per ciascun sentiment",
-       x = "Sentiment", y = "Favorite Count") +
-  theme_minimal()
-
-#Osservazione:
-#il numero di retweet ha molti outlier per ciascuna categoria, 
-#indicando che ci sono tweet che ottengono molti più retweet 
-#rispetto alla maggior parte degli altri.
-#La maggior parte dei dati si concentra attorno a valori bassi 
-#di retweet per tutte e tre le categorie (tra 0 e 100), 
-#ma ci sono alcuni tweet che superano i 2000, 4000, e anche 
-#6000 retweet.
-#La mediana del numero di retweet è abbastanza bassa in tutte 
-#le categorie, suggerendo che i tweet con molti retweet sono 
-#eventi rari.
+# Calcoliamo la media di retweetcount e favorite_count per 
+#ciascun tipo di sentiment
 
 
+
+# Conversione delle colonne in formato temporale
+dataset$created_at <- as.POSIXct(dataset$tweetcreatedts, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+dataset$user_created_at <- as.POSIXct(dataset$usercreatedts, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+# Creare una colonna con la data (senza ora)
+dataset$date <- as.Date(dataset$created_at)
 # Contare il numero di tweet per giorno
 tweets_per_day <- dataset %>%
   group_by(date) %>%
@@ -144,6 +117,7 @@ ggplot(dataset, aes(x = sentiment, y = log_retweetcount)) +
   geom_boxplot() +
   labs(title = "Distribuzione dei Retweet per Sentiment", y = "Retweet Count")
 
+########
 # Converte le date in formato Date
 dataset$tweetcreatedts <- as.POSIXct(dataset$tweetcreatedts, format="%Y-%m-%dT%H:%M:%SZ")
 
