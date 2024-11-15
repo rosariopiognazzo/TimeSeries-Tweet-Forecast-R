@@ -4,6 +4,7 @@ library(corrplot)
 library(dplyr)
 library(ggplot2)
 library(factoextra)
+library(scatterplot3d)
 
 #carichiamo il dataset in R
 dataset <- read_csv2("C:/Users/Utente/Documenti/Dataset.csv")
@@ -108,53 +109,99 @@ ggplot(tweets_per_day_sentiment, aes(x = date, y = proportion, fill = sentiment)
 #fine
 
 
-# Selezione delle colonne pertinenti
-dataset_filtered <- dataset %>%
-  select(retweetcount, favorite_count, sentiment)
+# Seleziona solo le variabili di interesse per la correlazione
+cor_data <- dataset[, c("followers", "following", "retweetcount", "favorite_count")]
 
-# Conversione della variabile sentiment in fattore e poi in numerico
-dataset_filtered$sentiment <- as.numeric(factor(dataset_filtered$sentiment))
-
-# Standardizzazione dei dati
-dataset_scaled <- scale(dataset_filtered)
-
-# Determinazione del numero ottimale di cluster usando il metodo del gomito
-set.seed(42)
-wss <- sapply(1:10, function(k){
-  kmeans(dataset_scaled, centers = k, nstart = 25)$tot.withinss
-})
-
-# Visualizzazione del metodo del gomito
-plot(1:10, wss, type = "b", pch = 19, frame = FALSE,
-     xlab = "Numero di Cluster K",
-     ylab = "Somma delle distanze al quadrato (WSS)",
-     main = "Metodo del Gomito per determinare il numero ottimale di cluster")
-
-# Esecuzione di k-means con un numero ottimale di cluster (ad esempio, 3)
-set.seed(42)
-kmeans_result <- kmeans(dataset_scaled, centers = 3, nstart = 25)
-
-# Aggiunta delle informazioni di clustering al dataset originale
-dataset_filtered$cluster <- as.factor(kmeans_result$cluster)
-
-# Visualizzazione dei cluster
-fviz_cluster(kmeans_result, data = dataset_scaled,
-             geom = "point",
-             ellipse.type = "convex",
-             palette = "jco",
-             ggtheme = theme_minimal())
-
-#Osservazione:
-#La maggior parte dei dati sembra essere concentrata vicino 
-#all'origine, mentre un punto del cluster 3 (quadrato grigio) 
-#è notevolmente distante dagli altri, probabilmente un outlier 
-#o un'anomalia nei dati.
-#Le due dimensioni (Dim1 e Dim2) spiegano rispettivamente 
-#il 33.8% e il 33.3% della varianza, quindi insieme 
-#rappresentano circa il 67% della varianza totale. 
-#Ciò significa che i dati sono parzialmente ben rappresentati 
-#in questo spazio bidimensionale, ma ci potrebbero essere altre 
-#caratteristiche rilevanti non visualizzate in questo grafico.
+# Calcola la matrice di correlazione
+cor_matrix <- cor(cor_data, use = "complete.obs")
+print(cor_matrix)
 
 
+# Boxplot per retweet e sentiment
+ggplot(dataset, aes(x = sentiment, y = retweetcount)) + 
+  geom_boxplot() +
+  labs(title = "Distribuzione dei Retweet per Sentiment", y = "Retweet Count")
+
+# Trasformazione logaritmica delle variabili a scala elevata
+dataset$log_followers <- log(dataset$followers)
+dataset$log_following <- log(dataset$following)
+dataset$log_totaltweets <- log(dataset$totaltweets)
+dataset$log_retweetcount <- log(dataset$retweetcount)
+dataset$log_favorite_count <- log(dataset$favorite_count)
+
+dataset$log_followers[is.infinite(dataset$log_followers) & dataset$log_followers == -Inf] <- 0
+
+dataset$log_following[is.infinite(dataset$log_following) & dataset$log_following == -Inf] <- 0
+
+dataset$log_totaltweets[is.infinite(dataset$log_totaltweets) & dataset$log_totaltweets == -Inf] <- 0
+
+dataset$log_retweetcount[is.infinite(dataset$log_retweetcount) & dataset$log_retweetcount == -Inf] <- 0
+
+dataset$log_favorite_count[is.infinite(dataset$log_favorite_count) & dataset$log_favorite_count == -Inf] <- 0
+
+# Boxplot per retweet e sentiment
+ggplot(dataset, aes(x = sentiment, y = log_retweetcount)) + 
+  geom_boxplot() +
+  labs(title = "Distribuzione dei Retweet per Sentiment", y = "Retweet Count")
+
+# Converte le date in formato Date
+dataset$tweetcreatedts <- as.POSIXct(dataset$tweetcreatedts, format="%Y-%m-%dT%H:%M:%SZ")
+
+# Raggruppa i dati per giorno e somma i retweet
+daily_data <- dataset %>%
+  mutate(date = as.Date(tweetcreatedts)) %>%
+  group_by(date) %>%
+  summarize(daily_retweets = sum(retweetcount, na.rm = TRUE))
+
+# Grafico della serie temporale
+ggplot(daily_data, aes(x = date, y = daily_retweets)) +
+  geom_line() +
+  labs(title = "Andamento dei Retweet nel Tempo", x = "Data", y = "Numero di Retweet")
+
+# Seleziona le variabili numeriche per il clustering
+data_cluster <- dataset[, c("followers", "following", "totaltweets")]
+
+# Normalizza i dati (opzionale, ma consigliato)
+data_cluster <- scale(data_cluster)
+
+# Esegui il clustering K-means
+set.seed(123)  # Per risultati ripetibili
+kmeans_result <- kmeans(data_cluster, centers = 3)  # 3 è il numero di cluster che puoi scegliere
+
+# Aggiungi i risultati del clustering al dataset
+dataset$cluster <- kmeans_result$cluster
+
+
+# Visualizzazione 3D con scatterplot3d
+scatterplot3d(dataset$followers, dataset$following, dataset$totaltweets,
+              color = dataset$cluster, pch = 16,  # Punti colorati in base ai cluster
+              main = "Visualizzazione Cluster K-means 3D", 
+              xlab = "Followers", ylab = "Following", zlab = "Total Tweets")
+
+
+# Calcola il K-means per un intervallo di numeri di cluster
+wss <- sapply(1:10, function(k) {kmeans(data_cluster, centers = k, nstart = 25)$tot.withinss})
+
+# Traccia il grafico dell'Elbow
+plot(1:10, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Numero di cluster", ylab = "Totale Within-cluster Sum of Squares")
+
+# Seleziona le variabili numeriche per il clustering
+data_cluster <- dataset[, c("followers", "following", "totaltweets")]
+
+# Normalizza i dati (opzionale, ma consigliato)
+data_cluster <- scale(data_cluster)
+
+# Esegui il clustering K-means
+set.seed(123)  # Per risultati ripetibili
+kmeans_result <- kmeans(data_cluster, centers = 5)  
+
+# Aggiungi i risultati del clustering al dataset
+dataset$cluster <- kmeans_result$cluster
+
+# Visualizzazione 3D con scatterplot3d
+scatterplot3d(dataset$followers, dataset$following, dataset$totaltweets,
+              color = dataset$cluster, pch = 16,  # Punti colorati in base ai cluster
+              main = "Visualizzazione Cluster K-means 3D", 
+              xlab = "Followers", ylab = "Following", zlab = "Total Tweets")
 
