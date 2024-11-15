@@ -9,7 +9,7 @@ library(gridExtra)
 
 
 #carichiamo il dataset in R
-Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
 
 #non si lavora mai sul dataset raw, ma su una copia
 dataset <- Sentiment_fr_tweet_2023
@@ -27,6 +27,8 @@ dataset <- dataset %>%
          is_quote_status = as.factor(ifelse(is_quote_status == FALSE, 0, 1)),
          sentiment = as.factor(sentiment),
          score = as.numeric(score))
+
+write_csv2(dataset, "C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Dataset.csv")
 
 #salviamoci le variabili numeriche
 var_numeriche <- dataset %>%

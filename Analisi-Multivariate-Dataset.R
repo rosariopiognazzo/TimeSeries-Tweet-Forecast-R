@@ -144,6 +144,8 @@ ggplot(dataset, aes(x = sentiment, y = log_retweetcount)) +
   geom_boxplot() +
   labs(title = "Distribuzione dei Retweet per Sentiment", y = "Retweet Count")
 
+
+
 # Converte le date in formato Date
 dataset$tweetcreatedts <- as.POSIXct(dataset$tweetcreatedts, format="%Y-%m-%dT%H:%M:%SZ")
 
@@ -157,6 +159,9 @@ daily_data <- dataset %>%
 ggplot(daily_data, aes(x = date, y = daily_retweets)) +
   geom_line() +
   labs(title = "Andamento dei Retweet nel Tempo", x = "Data", y = "Numero di Retweet")
+
+
+
 
 # Seleziona le variabili numeriche per il clustering
 data_cluster <- dataset[, c("followers", "following", "totaltweets")]
@@ -176,8 +181,9 @@ dataset$cluster <- kmeans_result$cluster
 scatterplot3d(dataset$followers, dataset$following, dataset$totaltweets,
               color = dataset$cluster, pch = 16,  # Punti colorati in base ai cluster
               main = "Visualizzazione Cluster K-means 3D", 
-              xlab = "Followers", ylab = "Following", zlab = "Total Tweets")
-
+              xlab = "Followers", ylab = "Following", zlab = "Total sweets")
+#UTILE PER VEDERE SE KMEANS INDIVIDUA BENE LE TRE CLASSI NEU, POS, NEG oppure individua altri cluster
+#NOTA: effetto outliers
 
 # Calcola il K-means per un intervallo di numeri di cluster
 wss <- sapply(1:10, function(k) {kmeans(data_cluster, centers = k, nstart = 25)$tot.withinss})
@@ -185,13 +191,14 @@ wss <- sapply(1:10, function(k) {kmeans(data_cluster, centers = k, nstart = 25)$
 # Traccia il grafico dell'Elbow
 plot(1:10, wss, type = "b", pch = 19, frame = FALSE, 
      xlab = "Numero di cluster", ylab = "Totale Within-cluster Sum of Squares")
+## per decidere conviene usare non solo elbow method ma anche misure più quantitative come HC
 
 # Seleziona le variabili numeriche per il clustering
 data_cluster <- dataset[, c("followers", "following", "totaltweets")]
 
 # Normalizza i dati (opzionale, ma consigliato)
 data_cluster <- scale(data_cluster)
-
+s
 # Esegui il clustering K-means
 set.seed(123)  # Per risultati ripetibili
 kmeans_result <- kmeans(data_cluster, centers = 5)  
