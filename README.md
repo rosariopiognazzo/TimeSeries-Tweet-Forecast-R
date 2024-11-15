@@ -9,3 +9,7 @@ L'analisi del dataset si divide sostanzialmente in 5 fasi:
   - Modello Regressivo lineare/non-lineare
 - Analisi di rete sociale
 - Clustering
+
+
+## Dataset
+Il dataset può essere scaricato da [Google Drive](https://drive.google.com/file/d/1PLdPn5X73926GVcE8AjyyeIwqZFpo0QB/view?usp=sharing).
