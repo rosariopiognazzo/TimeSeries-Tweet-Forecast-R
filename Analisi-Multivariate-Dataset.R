@@ -117,7 +117,8 @@ ggplot(dataset, aes(x = sentiment, y = log_retweetcount)) +
   geom_boxplot() +
   labs(title = "Distribuzione dei Retweet per Sentiment", y = "Retweet Count")
 
-########
+#Osservazione:
+#Dal grafico notiamo che per i tutti e tre i sentiment vi è distribuzione
 # Converte le date in formato Date
 dataset$tweetcreatedts <- as.POSIXct(dataset$tweetcreatedts, format="%Y-%m-%dT%H:%M:%SZ")
 
@@ -179,3 +180,19 @@ scatterplot3d(dataset$followers, dataset$following, dataset$totaltweets,
               main = "Visualizzazione Cluster K-means 3D", 
               xlab = "Followers", ylab = "Following", zlab = "Total Tweets")
 
+dataset$sentiment <- ifelse(dataset$sentiment == "neu", 1,
+                            ifelse(dataset$sentiment == "neg", 2, 3))
+
+
+scatterplot3d(dataset$followers, dataset$following, dataset$totaltweets,
+              color = dataset$sentiment, pch = 16,  # Punti colorati in base ai cluster
+              main = "Visualizzazione Cluster K-means 3D", 
+              xlab = "Followers", ylab = "Following", zlab = "Total Tweets")
+
+dataset$is_retweet <- as.factor(dataset$is_retweet)
+names(dataset$is_retweet) <- c("non retweet", "retweet")
+
+
+ggplot(dataset, aes(x = is_retweet, y = log(retweetcount))) + 
+  geom_boxplot(aes(fill = is_retweet)) +
+  facet_grid(~sentiment, scales = "free")
