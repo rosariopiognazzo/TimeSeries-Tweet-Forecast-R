@@ -4,6 +4,8 @@ library(tidyr)
 library(ggplot2)
 library(highfrequency)
 library(xts)
+library(forecast)
+library(lubridate)
 
 Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Dataset.csv")
 dataset <- Sentiment_fr_tweet_2023
@@ -28,7 +30,7 @@ df_diff <- dataset %>%
   select(tweetcreatedts, score_diff, sentiment) %>%
   ungroup()
 
-# Creazione del grafico
+# Creazione del grafico1
 ggplot(df_diff, aes(x = tweetcreatedts, y = score_diff, color = sentiment)) +
   geom_line() +
   facet_wrap(~ sentiment, scales = "free_y") + # Grafici separati per ogni categoria
@@ -38,6 +40,18 @@ ggplot(df_diff, aes(x = tweetcreatedts, y = score_diff, color = sentiment)) +
     y = "Variazione dello Score"
   ) +
   theme_minimal()
+
+#creazione del grafico2
+ggplot(dataset, aes(x = tweetcreatedts, y = score, color = sentiment)) +
+  geom_line() +
+  facet_wrap(~ sentiment, scales = "free_y") + # Grafici separati per ogni categoria
+  labs(
+    title = "Variazione dello Score nel Tempo per Categoria di Sentiment",
+    x = "Data e Ora",
+    y = "Score"
+  ) +
+  theme_minimal()
+#
 ## osserviamo un altissima frequenza nei dati: PROBLEMA --> = alta è la frequenza maggiore è il noise
 ## inoltre per loro natura hanno una struttura non-omogenea (non sono ugualmente distanziati nel tempo)
 ## Trasformare da non omegenea ad omogena:
@@ -45,9 +59,9 @@ ggplot(df_diff, aes(x = tweetcreatedts, y = score_diff, color = sentiment)) +
 ## - Linear interpolation 
 ## (differenza è trascurabile per dati ad altissima frequenza)
 #
-#
+# ----------------------------------------------------------------------#
 ### PLOT DELLE TIME SERIES DELLE DIFFERENZE DELLO SCORE PER SENTIMENT ###
-#                                                                       #
+# ----------------------------------------------------------------------#
 # Funzione per creare il plot
 create_ts_plot <- function(data, var_num, var_fact, var_temp, tmp, diff) {
   # dati ordinati
@@ -94,7 +108,7 @@ create_ts_plot <- function(data, var_num, var_fact, var_temp, tmp, diff) {
   }
   
   # Creazione del grafico
-  ggplot(df_homogeneous, aes(x = time, y = value, color = category)) +
+  p <- ggplot(df_homogeneous, aes(x = time, y = value, color = category)) +
     geom_line() +
     facet_wrap(~ category, scales = "free_y") +
     labs(
@@ -105,10 +119,14 @@ create_ts_plot <- function(data, var_num, var_fact, var_temp, tmp, diff) {
       y = ifelse(diff, "Variazione", "Valore")
     ) +
     theme_minimal()
+  
+  print(p)#plotto
+  
+  return(series_homogeneous)
 }
 
 # Eseguiamo la funzione
-create_ts_plot(
+scoreTS_diff <- create_ts_plot(
   data = dataset, 
   var_num = "score", 
   var_fact = "sentiment", 
@@ -118,7 +136,7 @@ create_ts_plot(
 )
 
 # Eseguiamo la funzione
-create_ts_plot(
+scoreTS <- create_ts_plot(
   data = dataset, 
   var_num = "score", 
   var_fact = "sentiment", 
@@ -128,14 +146,21 @@ create_ts_plot(
 )
 
 # Eseguiamo la funzione
-create_ts_plot(
+scoreTS_day <- create_ts_plot(
   data = dataset, 
   var_num = "score", 
-  var_fact = "is_retweet", 
+  var_fact = "sentiment", 
   var_temp = "tweetcreatedts", 
-  tmp = c("hours", 1), 
+  tmp = c("days", 1), 
   diff = FALSE
 )
 
+ts_list <- lapply(scoreTS, function(df)ts(data = df))
+
+# Output
+ts_list <- as.data.frame(ts_list)
+
+GGally::ggpairs(ts_list[c("neg.value", "pos.value", "neu.value")])
+#non c'è dipendenza tra le serie storiche dello score
 
 
