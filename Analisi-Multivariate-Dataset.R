@@ -120,11 +120,7 @@ ggplot(dataset, aes(x = sentiment, y = log_retweetcount)) +
 
 #Osservazione:
 #Dal grafico notiamo che il numero di retweet è simile tra i tre 
-#sentimenti, con una mediana stabile. Tuttavia, pos e neu mostrano una 
-#variabilità leggermente maggiore rispetto a neg. I valori fuori dal box 
-#indicano tweet che hanno ottenuto un numero eccezionalmente alto di 
-#retweet, potenzialmente associati a eventi rilevanti o contenuti 
-#particolarmente condivisibili.
+#sentimenti, con una mediana stabile.
 
 # Converte le date in formato Date
 dataset$tweetcreatedts <- as.POSIXct(dataset$tweetcreatedts, format="%Y-%m-%dT%H:%M:%SZ")
