@@ -117,13 +117,15 @@ ggplot(dataset, aes(x = sentiment, y = log_retweetcount)) +
   geom_boxplot() +
   labs(title = "Distribuzione dei Retweet per Sentiment", y = "Retweet Count")
 
-<<<<<<< HEAD
 
-
-=======
 #Osservazione:
-#Dal grafico notiamo che per i tutti e tre i sentiment vi è distribuzione
->>>>>>> 095ac818ab5e45ad1ec6c699de49a84020b08c5e
+#Dal grafico notiamo che il numero di retweet è simile tra i tre 
+#sentimenti, con una mediana stabile. Tuttavia, pos e neu mostrano una 
+#variabilità leggermente maggiore rispetto a neg. I valori fuori dal box 
+#indicano tweet che hanno ottenuto un numero eccezionalmente alto di 
+#retweet, potenzialmente associati a eventi rilevanti o contenuti 
+#particolarmente condivisibili.
+
 # Converte le date in formato Date
 dataset$tweetcreatedts <- as.POSIXct(dataset$tweetcreatedts, format="%Y-%m-%dT%H:%M:%SZ")
 
@@ -206,3 +208,27 @@ names(dataset$is_retweet) <- c("non retweet", "retweet")
 ggplot(dataset, aes(x = is_retweet, y = log(retweetcount))) + 
   geom_boxplot(aes(fill = is_retweet)) +
   facet_grid(~sentiment, scales = "free")
+
+
+
+# Rimuovi i caratteri non numerici
+dataset$score <- gsub("[^0-9.-]", "", dataset$score)
+
+# Ora puoi fare la conversione a numerico
+dataset$score <- as.numeric(dataset$score)
+
+ggplot(dataset, aes(x = sentiment, y = score)) + 
+  geom_boxplot() +
+  labs(title = "Distribuzione degli score per Sentiment",y="score")
+#Osservazione:
+#Dal seguente grafico si può notare che:
+#- I tweet con sentiment negativo mostrano uno score molto concentrato 
+#in alto, indicando una forte intensità negativa.
+#- I tweet neutri hanno una distribuzione più bilanciata intorno 
+#a valori medi, senza estremi marcati.
+#- I tweet positivi presentano una maggiore variabilità, ma non mostrano 
+#punte particolarmente alte o una predominanza significativa.
+#Inoltre il range degli score negativi è più stretto rispetto agli altri 
+#sentimenti, indicando una valutazione più uniforme della negatività.
+#Mentre per i sentimenti neutro e positivo, il range è più ampio, 
+#ma con una distribuzione più bilanciata attorno alla mediana.
