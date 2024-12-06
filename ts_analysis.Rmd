@@ -1,0 +1,335 @@
+---
+title: "Time_series_analysis"
+author: "Rosario Pio Gnazzo"
+date: "2024-12-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      message=FALSE, 
+                      warning=FALSE, 
+                      fig.align='center')
+options(xts_check_TZ = FALSE)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(highfrequency)
+library(xts)
+library(forecast)
+library(lubridate)
+```
+
+```{r}
+
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
+
+dataset <- Sentiment_fr_tweet_2023
+
+dataset <- dataset %>%
+  mutate(userid = as.character(userid),
+         following = as.numeric(following),
+         followers = as.numeric(followers),
+         totaltweets = as.numeric(totaltweets),
+         tweetid = as.character(tweetid),
+         retweetcount = as.numeric(retweetcount),
+         favorite_count = as.numeric(favorite_count),
+         is_retweet = as.factor(ifelse(is_retweet == FALSE, 0, 1)),
+         is_quote_status = as.factor(ifelse(is_quote_status == FALSE, 0, 1)),
+         sentiment = as.factor(sentiment),
+         score = as.numeric(score))
+```
+
+## Time Series Analysis
+
+Funzione per creare oggetti <ts> e visualizzare serie storiche di una variabile numerica rispeto ad una categoriale indicando in che unità di tempo visualizzarla
+
+```{r}
+create_ts_plot <- function(data, var_num, var_fact, var_temp, tmp, diff) {
+  # dati ordinati
+  data <- data %>%
+    arrange(!!sym(var_temp))
+  
+  # Creazione della lista di serie temporali per ogni categoria della variabile categoriale
+  series_list <- split(data, data[[var_fact]])
+  
+  # facciamo l'aggregazione omogenea per ogni categoria
+  series_homogeneous <- lapply(series_list, function(group) {
+    # Conversione in oggetto xts
+    ts_data <- xts(group[[var_num]], order.by = group[[var_temp]])
+    
+    # Estrazione delle unità di tempo e del periodo
+    align_by <- tmp[1] # Es. "hours", "minutes"
+    align_period <- tmp[2] # Es. 1, 2, ecc.
+    
+    # Aggregazione
+    aggregated_data <- aggregateTS(ts_data, alignBy = align_by, alignPeriod = as.integer(align_period))
+    
+    # Creazione di un dataframe con i dati aggregati
+    data.frame(
+      time = as.POSIXct(index(aggregated_data)),
+      value = as.numeric(aggregated_data)
+    )
+  })
+  
+  # Combiniamo i dati aggregati
+  df_homogeneous <- bind_rows(
+    Map(function(data, category) {
+      data$category <- category
+      data
+    }, series_homogeneous, names(series_homogeneous))
+  )
+  
+  # Calcolo delle differenze, se richiesto
+  if (diff) {
+    df_homogeneous <- df_homogeneous %>%
+      group_by(category) %>%
+      arrange(time) %>%  # Riordina per sicurezza
+      mutate(value = value - lag(value)) %>%  # Differenza rispetto al valore precedente
+      ungroup()
+  }
+  
+  # Creazione del grafico
+  p <- ggplot(df_homogeneous, aes(x = time, y = value, color = category)) +
+    geom_line() +
+    facet_wrap(~ category, scales = "free_y") +
+    labs(
+      title = ifelse(diff, 
+                     "Variazione della Variabile Numerica nel Tempo", 
+                     "Andamento della Variabile Numerica nel Tempo"),
+      x = "Tempo",
+      y = ifelse(diff, "Variazione", "Valore")
+    ) +
+    theme_minimal()
+  
+  print(p)#plotto
+  
+  return(series_homogeneous)
+}
+```
+
+### Plots per _"score"_ 
+
+```{r}
+# Eseguiamo la funzione
+scoreTS <- create_ts_plot(
+  data = dataset, 
+  var_num = "score", 
+  var_fact = "sentiment", 
+  var_temp = "tweetcreatedts", 
+  tmp = c("minutes", 30), 
+  diff = FALSE
+)
+```
+
+Osservando le serie sembrerebbero essere tutte e tre un andamento white noise, verifichiamolo
+
+```{r}
+acf(scoreTS$neg$value, lag.max = 100, main = "Autocorrelazione (Sentiment: neg)")
+# acf(scoreTS$neu$value, lag.max = 100, main = "Autocorrelazione (Sentiment: neu)")
+# acf(scoreTS$pos$value, lag.max = 100, main = "Autocorrelazione (Sentiment: pos)")
+
+pacf(scoreTS$neg$value, lag.max = 100, main = "Autocorrelazione parziale (Sentiment: neg)")
+# pacf(scoreTS$neu$value, lag.max = 100, main = "Autocorrelazione parziale (Sentiment: neu)")
+# pacf(scoreTS$pos$value, lag.max = 100, main = "Autocorrelazione parziale (Sentiment: pos)")
+
+Box.test(scoreTS$neg$value, lag = 100, type="Ljung")
+```
+
+Dai grafici e dal test le distribuzioni seguono una distribuzione white noise
+
+### Occorrenze per sotto-periodi di 30 minuti
+
+```{r}
+
+df_occ <- dataset %>%
+  mutate(interval = floor_date(tweetcreatedts, "30 minutes")) %>%
+  group_by(interval, sentiment) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(interval, sentiment)
+```
+
+```{r}
+# Grafico a linee
+ggplot(df_occ, aes(x = interval, y = count, color = sentiment)) +
+  geom_line() +
+  labs(
+    title = "Conteggio dei Tweet per Sentiment",
+    x = "Intervalli di 30 Minuti",
+    y = "Numero di Tweet",
+    color = "Sentiment"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_datetime(date_breaks = "6 hours", date_labels = "%d-%b %H:%M")
+```
+
+Il grafico sembra chiaramente catturare la presenza di periodicità temporale nei dati, per questo motivo
+effettuiamo un'analisi statistica per valutarne l'effettiva presenza.
+
+```{r}
+# Trasformazione in formato wide perché più comodo
+df_occ_wide <- df_occ %>%
+  pivot_wider(names_from = sentiment, values_from = count, values_fill = 0)
+
+df_occ_wide
+
+# Creazione delle serie temporali per un sentiment specifico (es. "neg")
+neg_ts <- ts(df_occ_wide$neg, start = c(2023, 1), frequency = 48) # 48 intervalli di 30 minuti al giorno
+# neu_ts <- ts(df_occ_wide$neu, start = c(2023, 1), frequency = 48) # 48 intervalli di 30 minuti al giorno
+# pos_ts <- ts(df_occ_wide$pos, start = c(2023, 1), frequency = 48) # 48 intervalli di 30 minuti al giorno
+
+seasonplot(neg_ts)
+# seasonplot(neu_ts)
+# seasonplot(pos_ts)
+```
+
+Si nota chiaramente una presenza di periodicità nei dati. Valutiamola quantitativamente:
+
+```{r}
+acf(neg_ts, lag.max = 100, main = "Autocorrelazione (Sentiment: neg)")
+# acf(neu_ts, lag.max = 100, main = "Autocorrelazione (Sentiment: neu)")
+# acf(pos_ts, lag.max = 100, main = "Autocorrelazione (Sentiment: pos)")
+
+pacf(neg_ts, lag.max = 100, main = "Autocorrelazione parziale (Sentiment: neg)")
+# pacf(neu_ts, lag.max = 100, main = "Autocorrelazione parziale (Sentiment: neu)")
+# pacf(pos_ts, lag.max = 100, main = "Autocorrelazione parziale (Sentiment: pos)")
+
+```
+
+Il test Ljung-Box valuta se le correlazioni rilevate sono significative, in particolare
+se il p-value è piccolo (<0.05), significa che ci sono correlazioni significative nei dati.
+```{r}
+Box.test(neg_ts, lag = 100, type = "Ljung-Box")
+# Box.test(neu_ts, lag = 100, type = "Ljung-Box")
+# Box.test(pos_ts, lag = 100, type = "Ljung-Box")
+```
+
+## Modello decomposizione migliore
+
+```{r}
+# Decomposizione della serie temporale
+# osservare la componente seasonal per vedere se ci sono pattern ripetuti
+
+library(seasonal)
+neg_ts %>% stl(t.window = 13, s.window = "periodic", robust = TRUE) -> fit
+neg_ts %>% decompose(type="multiplicative") -> fit1
+# neu_ts %>% decompose(type="multiplicative") -> fit2
+# pos_ts %>% decompose(type="multiplicative") -> fit3
+
+# fit %>%
+#   autoplot() + xlab("tempo") +
+#   ggtitle("Decomposizione STL: tweet negativi (30 minuti)")+theme_bw()
+# fit1 %>%
+#   autoplot() + xlab("tempo") +
+#   ggtitle("Decomposizione Classica: tweet negativi (30 minuti)")+theme_bw()
+# 
+# fit2 %>%
+#   autoplot() + xlab("tempo") +
+#   ggtitle("Decomposizione serie storica tweet neutrali (30 minuti)")
+# fit3 %>%
+#   autoplot() + xlab("tempo") +
+#   ggtitle("Decomposizione serie storica tweet positivi (30 minuti)")
+
+autoplot(neg_ts, series="Data") +
+  autolayer(trendcycle(fit), series="Trend") +
+  autolayer(seasadj(fit), series="Seasonally Adjusted") +
+  xlab("Tempo") + ylab("Numero di tweets") +
+  ggtitle("Decomposizone STL: tweet negativi ogni 30 minuti") +
+  scale_colour_manual(values=c("gray","blue","red"),
+             breaks=c("Data","Seasonally Adjusted","Trend"))
+```
+
+```{r}
+autoplot(neg_ts, series="Data") +
+  autolayer(trendcycle(fit1), series="Trend") +
+  autolayer(seasadj(fit1), series="Seasonally Adjusted") +
+  xlab("Tempo") + ylab("Numero di tweets") +
+  ggtitle("Decomposizone Classica: tweet negativi ogni 30 minuti") +
+  scale_colour_manual(values=c("gray","blue","red"),
+             breaks=c("Data","Seasonally Adjusted","Trend"))
+
+# autoplot(neu_ts, series="Data") +
+#   autolayer(trendcycle(fit2), series="Trend") +
+#   autolayer(seasadj(fit2), series="Seasonally Adjusted") +
+#   xlab("Tempo") + ylab("Numero di tweets") +
+#   ggtitle("Frequenza di tweet neutrali ogni 30 minuti") +
+#   scale_colour_manual(values=c("gray","blue","red"),
+#              breaks=c("Data","Seasonally Adjusted","Trend"))
+# autoplot(pos_ts, series="Data") +
+#   autolayer(trendcycle(fit3), series="Trend") +
+#   autolayer(seasadj(fit3), series="Seasonally Adjusted") +
+#   xlab("Tempo") + ylab("Numero di tweets") +
+#   ggtitle("Frequenza di tweet positivi ogni 30 minuti") +
+#   scale_colour_manual(values=c("gray","blue","red"),
+#              breaks=c("Data","Seasonally Adjusted","Trend"))
+```
+
+### Modello Fourier + Media mobile
+Identifichiamo quanti termini di Fourier da usare
+
+```{r}
+# Identificazione della periodicità
+# fourier_terms2 <- fourier(neg_ts, K = 2)
+# model2 <- tslm(neg_ts ~ fourier_terms2)
+
+fourier_terms5 <- fourier(neg_ts, K = 5)
+model5 <- tslm(neg_ts ~ fourier_terms5)
+
+# fourier_terms8 <- fourier(neg_ts, K = 8)
+# model8 <- tslm(neg_ts ~ fourier_terms8)
+# 
+# fourier_terms11<- fourier(neg_ts, K = 11)
+# model11 <- tslm(neg_ts ~ fourier_terms11)
+
+# Grafico della serie temporale e della sua approssimazione
+# plot.new()
+# plot(neg_ts, main = "Periodicità stimata con 2 Termini di Fourier", col = "black", ylab = "Conteggio dei tweet", xlab = "Tempo")+
+# lines(fitted(model2), col = "red", lwd = 1.5)
+# summary(model2)
+```
+```{r}
+plot.new()
+plot(neg_ts, main = "Periodicità stimata con 5 Termini di Fourier", col = "black", ylab = "Conteggio dei tweet", xlab = "Tempo")+
+lines(fitted(model5), col = "red", lwd = 1.5)
+summary(model5)
+```
+```{r}
+# plot.new()
+# plot(neg_ts, main = "Periodicità stimata con 8 Termini di Fourier", col = "black", ylab = "Conteggio dei tweet", xlab = "Tempo")+
+# lines(fitted(model8), col = "red", lwd = 1.5)
+# summary(model8)
+```
+```{r}
+# plot.new()
+# plot(neg_ts, main = "Periodicità stimata con 11 Termini di Fourier", col = "black", ylab = "Conteggio dei tweet", xlab = "Tempo")+
+# lines(fitted(model11), col = "red", lwd = 1.5)
+# summary(model11)
+```
+
+```{r}
+autoplot(neg_ts, series="Data") +
+  autolayer(ma(neg_ts,48), series="48-MA") +
+  autolayer(fitted(model5), series = "Fourier") +
+  xlab("30m") + ylab("freq") +
+  ggtitle("Decomposizione con modello costruito")+
+  scale_colour_manual(values=c("Data"="grey60","48-MA"="red", "Fourier"="blue"),
+                      breaks=c("Data","48-MA","Fourier"))+theme_bw()
+```
+
+modello completo
+```{r, echo=TRUE}
+model_neg =  tslm(neg_ts ~ fourier_terms5 + ma(neg_ts, 48))
+summary(model_neg)
+```
+```{r}
+autoplot(neg_ts, series="Data") +
+  autolayer(fitted(model_neg), series = "Modello") +
+  xlab("30m") + ylab("freq") +
+  scale_colour_manual(values=c("Data"="grey60","Modello"="red"),
+                      breaks=c("Data","Modello"))+
+  theme_bw()
+```
+
+
