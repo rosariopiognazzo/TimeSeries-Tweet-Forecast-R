@@ -28,4 +28,4 @@ check_bot <- function(user_id) {
 
 # Applica la funzione a ogni user_id e aggiungi una nuova colonna con i punteggi
 dataset <- dataset[1:5,] %>%
-  mutate(bot_score = sapply(userid, check_bot))
+  mutate(bot_score = sapply(userid, check_bot)) 
