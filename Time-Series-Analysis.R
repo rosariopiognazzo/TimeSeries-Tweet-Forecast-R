@@ -144,7 +144,7 @@ scoreTS <- create_ts_plot(
   var_num = "score", 
   var_fact = "sentiment", 
   var_temp = "tweetcreatedts", 
-  tmp = c("hours", 1), 
+  tmp = c("minutes", 30), 
   diff = FALSE
 )
 
@@ -159,6 +159,8 @@ scoreTS_day <- create_ts_plot(
 )
 
 ts_list <- lapply(scoreTS, function(df)ts(data = df))
+ts_list
+
 
 # Output
 ts_list <- as.data.frame(ts_list)
@@ -167,7 +169,24 @@ GGally::ggpairs(ts_list[c("neg.value", "pos.value", "neu.value")])
 #non c'è dipendenza tra le serie storiche dello score
 
 
+<<<<<<< HEAD
 
+=======
+## analisi dal libro
+autoplot(ts_list$neg[, 2])
+
+dfts <- cbind(ts_list$neg, ts_list$pos[,2])
+autoplot(dfts[, c("ts_list$neg.value", "ts_list$pos[, 2]")], facets = TRUE)
+
+dfts <- as.data.frame(dfts)
+dfts %>%
+  ggplot(aes(x = `ts_list$neg.value`, y=`ts_list$pos[, 2]` ))+
+  geom_point()
+
+gglagplot(ts_list$neg[,2])
+
+ggAcf(ts_list$neg[,2])
+>>>>>>> 20cd6838047c4e92b7a28245d6a4c82642aadcd0
 
 
 
