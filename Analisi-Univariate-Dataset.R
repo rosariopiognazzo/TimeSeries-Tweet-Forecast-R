@@ -10,6 +10,8 @@ library(gridExtra)
 
 #carichiamo il dataset in R
 Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
+
 
 #non si lavora mai sul dataset raw, ma su una copia
 dataset <- Sentiment_fr_tweet_2023
@@ -270,6 +272,7 @@ create_comparison_plot("following", "histogram")
 create_comparison_plot("following", "pareto", c(3000, 1800, 500)) # c(bin dataset con outliers, bin dataset senza i grandi, bin dataset senza tutti)
 create_comparison_plot("following", "qqplot")
 
+create_comparison_plot("score", "boxplot")
 
 
 dataset %>%
