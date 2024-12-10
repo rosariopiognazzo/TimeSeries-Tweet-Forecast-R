@@ -22,8 +22,12 @@ library(lubridate)
 ```
 
 ```{r}
+#pc casa
+#Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
 
-Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
+#laptop
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
+
 
 dataset <- Sentiment_fr_tweet_2023
 
@@ -38,7 +42,8 @@ dataset <- dataset %>%
          is_retweet = as.factor(ifelse(is_retweet == FALSE, 0, 1)),
          is_quote_status = as.factor(ifelse(is_quote_status == FALSE, 0, 1)),
          sentiment = as.factor(sentiment),
-         score = as.numeric(score))
+         score = as.numeric(score),
+         score_std = scale(score))
 ```
 
 ### Time Series Analysis della variabile *score*
@@ -121,16 +126,31 @@ Osserviamo come la variabile _score_ cambia nel tempo per le tre classi della va
 #   diff = FALSE
 # )
 
-df <- dataset %>% select(tweetcreatedts, score, sentiment)
+df <- dataset %>% select(tweetcreatedts, score_std, sentiment)
 
-ggplot(data = df, aes(x = tweetcreatedts, y=score)) +
+ggplot(data = df, aes(x = tweetcreatedts, y=score_std)) +
   geom_line(aes(colour = sentiment))+
   facet_grid(~sentiment)
 ```
 
+*Per semplicità visualizzo solo NEG*
+
+```{r}
+ts_data <- xts(df$score_std, order.by = df$tweetcreatedts)
+score30 <- aggregateTS(ts_data, alignBy = "minutes", alignPeriod = 30)
+score1h <- aggregateTS(ts_data, alignBy = "hours", alignPeriod = 1)
+score6h <- aggregateTS(ts_data, alignBy = "hours", alignPeriod = 6)
+score12h <- aggregateTS(ts_data, alignBy = "hours", alignPeriod = 12)
+
+autoplot(score30)+theme_bw()
+autoplot(score1h)+theme_bw()
+autoplot(score6h)+theme_bw()
+autoplot(score12h)+theme_bw()
+```
+
 Le serie storiche mostrano mostrano dati ad *alta frequenza*, valutiamo se si distribuiscono come *white noise* e per farlo osserviamo *partial ACF* che ci indica le eventuali autocorrelazioni dirette fra i vari lag:
 ```{r}
-negative <- df %>% filter(sentiment=="neg")%>% select(tweetcreatedts, score)
+negative <- df %>% filter(sentiment=="neg")%>% select(tweetcreatedts, score_std)
 names(negative) <- c("time", "value")
 Pacf(negative$value,lag.max = 1000)
 
@@ -245,7 +265,10 @@ ggplot(data= df_out, aes(x = time, y = value)) +
     labs(title = "Serie Temporale degli Outliers", x = "Tempo", y = "Valore") +
     theme_minimal()
 
-checkresiduals(df_out$value)
+# checkresiduals(df_out$value) qualche errore poiché ci sono NAs
+acf(df_out$value, lag.max = 1000)
+Pacf(df_out$value, lag.max = 1000)
+Box.test(df_out$value, type = "Ljung-Box")
 ```
 
 Non segue una distribuzione strettamente white noise quindi c'è qualche caratteristica sottostante nell'andamento dei valori anomali nel tempo.
