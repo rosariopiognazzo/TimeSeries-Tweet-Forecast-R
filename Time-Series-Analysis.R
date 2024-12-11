@@ -8,6 +8,9 @@ library(forecast)
 library(lubridate)
 
 Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Dataset.csv")
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
+
+
 dataset <- Sentiment_fr_tweet_2023
 dataset <- dataset %>%
   mutate(userid = as.character(userid),
@@ -131,7 +134,7 @@ scoreTS_diff <- create_ts_plot(
   var_num = "score", 
   var_fact = "sentiment", 
   var_temp = "tweetcreatedts", 
-  tmp = c("hours", 1), 
+  tmp = c("hours", 10), 
   diff = TRUE
 )
 
@@ -166,6 +169,9 @@ GGally::ggpairs(ts_list[c("neg.value", "pos.value", "neu.value")])
 #non c'è dipendenza tra le serie storiche dello score
 
 
+<<<<<<< HEAD
+
+=======
 ## analisi dal libro
 autoplot(ts_list$neg[, 2])
 
@@ -180,6 +186,7 @@ dfts %>%
 gglagplot(ts_list$neg[,2])
 
 ggAcf(ts_list$neg[,2])
+>>>>>>> 20cd6838047c4e92b7a28245d6a4c82642aadcd0
 
 
 
