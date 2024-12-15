@@ -6,12 +6,13 @@ library(corrplot)
 library(moments)
 library(purrr)
 library(gridExtra)
-
+library(ggpubr)
+library(nortest)
 
 #carichiamo il dataset in R
 Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
 Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
-
+dataset <- read_csv2("C:/Users/Utente/Documenti/Dataset.csv")
 
 #non si lavora mai sul dataset raw, ma su una copia
 dataset <- Sentiment_fr_tweet_2023
@@ -89,8 +90,82 @@ metriche
 # - CURTOSI infatti è molto alta in quelle variabili, il che indica code pesanti quindi presenza di valori estremamente
 # alti e fuori dalla media
 ###
+# Applichiamo la trasformazione logaritmica a tutte le variabili numeriche
+dataset$log_followers <- log(ifelse(dataset$followers > 0, dataset$followers, NA))
+dataset$log_following <- log(ifelse(dataset$following > 0, dataset$following, NA))
+dataset$log_totaltweets <- log(ifelse(dataset$totaltweets > 0, dataset$totaltweets, NA))
+dataset$log_retweetcount <- log(ifelse(dataset$retweetcount > 0, dataset$retweetcount, NA))
+dataset$log_favorite_count <- log(ifelse(dataset$favorite_count > 0, dataset$favorite_count, NA))
 
 
+# Sostituiamo var_numeriche con le nuove variabili logaritmiche
+# Selezioniamo solo le variabili logaritmiche
+var_numeriche_log <- dataset %>%
+  select(log_followers, log_following, log_totaltweets, log_retweetcount, log_favorite_count)
+
+# Iteriamo su ogni variabile numerica per plottare i grafici
+for (col in names(var_numeriche_log)) {
+  
+  # Creiamo un dataframe temporaneo con la variabile corrente
+  data <- var_numeriche_log %>%
+    select(all_of(col)) %>%
+    drop_na()  # Rimuoviamo eventuali NA
+  
+  # Nome della variabile corrente
+  col_name <- colnames(data)[1]
+  
+  # Calcoliamo la media e mediana della variabile
+  media <- mean(data[[col_name]])
+  mediana <- median(data[[col_name]])
+  
+  # Grafico 1: Istogramma con densità
+  hist_plot <- ggplot(data, aes_string(x = col_name)) +
+    geom_histogram(aes(y = ..density..), bins = 30, fill = "skyblue", color = "black", alpha = 0.6) +
+    geom_density(color = "red", size = 1) +
+    geom_vline(aes(xintercept = media), color = "blue", linetype = "dashed", size = 1) +
+    geom_vline(aes(xintercept = mediana), color = "darkgreen", linetype = "dotted", size = 1) +
+    labs(title = paste("Distribuzione di", col_name),
+         x = col_name, y = "Densità") +
+    theme_minimal()
+  
+  # Grafico 2: Boxplot
+  box_plot <- ggplot(data, aes_string(y = col_name)) +
+    geom_boxplot(fill = "orange", color = "black", outlier.color = "red", outlier.size = 3) +
+    labs(title = paste("Boxplot di", col_name),
+         y = col_name) +
+    theme_minimal()
+  
+  # Test di normalità alternativo: Anderson-Darling
+  if (nrow(data) > 5000) {
+    sample_data <- data[[col_name]][1:5000]  # Sottocampioniamo le prime 5000 osservazioni
+    ad_test <- ad.test(sample_data)
+  } else {
+    ad_test <- ad.test(data[[col_name]])
+  }
+  
+  normality_p_value <- round(ad_test$p.value, 4)
+  normality_result <- ifelse(normality_p_value < 0.05, "Non Normale", "Normale")
+  
+  # Stampiamo il risultato del test
+  cat("\nVariabile:", col_name, 
+      "\nP-value Test di Anderson-Darling:", normality_p_value,
+      "\nDistribuzione:", normality_result, "\n\n")
+  
+  # QQ-plot per la normalità
+  qq_plot <- ggplot(data, aes(sample = data[[col_name]])) +
+    stat_qq() +
+    stat_qq_line(color = "red") +
+    labs(title = paste("QQ-Plot di", col_name),
+         x = "Teorico Quantile", y = "Quantile Osservato") +
+    theme_minimal()
+  
+  
+  # Combinazione dei grafici
+  combined_plot <- grid.arrange(hist_plot, box_plot, qq_plot, ncol = 3)
+  
+  # Pausa tra i grafici
+  readline(prompt = "Premi [Invio] per continuare...")
+}
 
 
 ###--------------------------------------------------------------------------------------------------------------------------------------------## 
