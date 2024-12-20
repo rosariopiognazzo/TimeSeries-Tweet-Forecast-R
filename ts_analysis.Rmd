@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE, 
                       message=FALSE, 
                       warning=FALSE, 
-                      fig.align='center', fig.width = 10)
+                      fig.align='center', fig.width = 8)
 options(xts_check_TZ = FALSE)
 library(readr)
 library(dplyr)
@@ -23,11 +23,10 @@ library(lubridate)
 
 ```{r}
 #pc casa
-#Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
 
 #laptop
-Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
-
+#Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
 
 dataset <- Sentiment_fr_tweet_2023
 
@@ -46,7 +45,7 @@ dataset <- dataset %>%
          score_std = scale(score))
 ```
 
-### Time Series Analysis della variabile *score*
+## Time Series Analysis della variabile *score*
 
 ```{r}
 # Funzione per creare oggetti <ts> e visualizzare serie storiche di una variabile numerica rispeto ad una categoriale indicando in che unità di tempo visualizzarla
@@ -111,11 +110,8 @@ dataset <- dataset %>%
 #   
 #   return(series_homogeneous)
 # }
-```
 
-Osserviamo come la variabile _score_ cambia nel tempo per le tre classi della variabile _sentiment_ (neg, neu e pos):
 
-```{r}
 # Eseguiamo la funzione
 # scoreTS <- create_ts_plot(
 #   data = dataset, 
@@ -126,166 +122,837 @@ Osserviamo come la variabile _score_ cambia nel tempo per le tre classi della va
 #   diff = FALSE
 # )
 
-df <- dataset %>% select(tweetcreatedts, score_std, sentiment)
-
-ggplot(data = df, aes(x = tweetcreatedts, y=score_std)) +
-  geom_line(aes(colour = sentiment))+
-  facet_grid(~sentiment)
 ```
 
-*Per semplicità visualizzo solo NEG*
+Osserviamo come la variabile *score* cambia nel tempo per le tre classi della variabile *sentiment* (neg, neu e pos):
 
 ```{r}
-ts_data <- xts(df$score_std, order.by = df$tweetcreatedts)
-score30 <- aggregateTS(ts_data, alignBy = "minutes", alignPeriod = 30)
-score1h <- aggregateTS(ts_data, alignBy = "hours", alignPeriod = 1)
-score6h <- aggregateTS(ts_data, alignBy = "hours", alignPeriod = 6)
-score12h <- aggregateTS(ts_data, alignBy = "hours", alignPeriod = 12)
+df <- dataset %>% select(tweetcreatedts, score, sentiment)
 
-autoplot(score30)+theme_bw()
-autoplot(score1h)+theme_bw()
-autoplot(score6h)+theme_bw()
-autoplot(score12h)+theme_bw()
+ggplot(df, aes(x = tweetcreatedts, y = score, color = sentiment)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Time series della variabile <Score>")+
+  facet_wrap(~sentiment, scales = "free", ncol = 1)+
+  theme_light()
 ```
 
-Le serie storiche mostrano mostrano dati ad *alta frequenza*, valutiamo se si distribuiscono come *white noise* e per farlo osserviamo *partial ACF* che ci indica le eventuali autocorrelazioni dirette fra i vari lag:
-```{r}
-negative <- df %>% filter(sentiment=="neg")%>% select(tweetcreatedts, score_std)
-names(negative) <- c("time", "value")
-Pacf(negative$value,lag.max = 1000)
+Osserviamo come cambia se invece utilizziamo una trasformata *Box-Cox* per mitigare la variabilità dei dati
 
-# positive <- df %>% filter(sentiment=="pos")%>% select(tweetcreatedts, score)
-# names(positive) <- c("time", "value")
-# Pacf(positive$value,lag.max = 1000)
-# 
-# neutral <- df %>% filter(sentiment=="neu")%>% select(tweetcreatedts, score)
-# names(neutral) <- c("time", "value")
-# Pacf(neutral$value,lag.max = 1000)
+```{r}
+lambdaNeg <- df %>% filter(sentiment=="neg") %>% select(score) %>% BoxCox.lambda()
+lambdaNeu <- df %>% filter(sentiment=="neu") %>% select(score) %>% BoxCox.lambda()
+lambdaPos <- df %>% filter(sentiment=="pos") %>% select(score) %>% BoxCox.lambda()
+#sono tutti uguali
+
+ggplot(df, aes(x = tweetcreatedts, y = BoxCox(score, lambdaNeg), color = sentiment)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Time series della variabile <Score> post Box-Cox Trasformation")+
+  facet_wrap(~sentiment, scales = "free", ncol = 1)+
+  theme_light()
 ```
 
-Sembrerebbe esseci nel primo periodo la presenza di un trend che poi termina intorno il lag 50, persiste successivamente una caratteristica sottostante che rende le serie non white noise.
+Sembrerebbe cambiare molto poco quindi continueremo l'analisi usando la serie originali.
 
--   _Lavorare sull'identificare un modo per catturare separatamente le due caratteristiche_
--   Per gestire l'alta variabilità potremmo usare trasformata Box-Cox (aggregando anche i dati)
+### Verifichiamo Stazionarietà e Autocorrelazione delle serie
 
-Per analizzare al meglio le serie storiche identifichiamo i possibili outliers utilizzando: *Algoritmo Brownlees-Gallo*:
+Sicuramente le serie non presentano forti Trend, né tantomeno forte Periodicità o Ciclicità dei dati. Per come si distribuiscono le serie molto probabilmente seguono una distribuzione **White Noise** e di **stazionarietà** rimanendo stabili intorno alla media e con la stessa variabilità nel tempo.
+
+Per poter verificare ciò, utilizzeremo due test di ipotesi:
+
+1.  **Test di Ljung-Box**
+
+    -   *Scopo*: Verificare **l'autocorrelazione** residua in una serie temporale
+
+    -   *Ipotesi nulla (H₀)*: Non vi è autocorrelazione fino a un certo lag -\> *white noise*
+
+    -   *Ipotesi alternativa (H₁)*: Vi è autocorrelazione fino a un certo lag
+
+    -   Conclusione:
+
+        -   Un *p-value* piccolo (\< 0.05) suggerisce di rifiutare H₀, indicando che c'è autocorrelazione significativa.
+
+        -   Un *p-value* grande indica che non ci sono evidenze di autocorrelazione.
+
+2.  **Kwiatkowski-phillips-Schmidt-Shin (KPSS) Test**
+
+    -   *Scopo*: Verificare se una serie temporale è **stazionaria**.
+
+    -   *Ipotesi nulla (H₀)*: La serie è stazionaria.
+
+    -   *Ipotesi alternativa (H₁)*: La serie non è stazionaria
+
+    -   Conclusione:
+
+        -   Un *p-value* piccolo (ad esempio, \< 0.05) suggerisce di rifiutare H₀, quindi la serie non è stazionaria e potrebbe necessitare differenziazione.
+
+        -   Un *p-value* grande non permette di rifiutare H₀, suggerendo che la serie è stazionaria.
+
+Per la serie storica dello score negativo:
 
 ```{r}
-detect_outliers <- function(data, gamma, delta, k) {
-  # Verifica input
-  if (!is.data.frame(data) || !all(c("time", "value") %in% names(data))) {
-    stop("L'input deve essere un data.frame con colonne 'time' e 'value'.")
-  }
-  if (!is.numeric(data$value)) {
-    stop("La colonna 'value' deve contenere valori numerici.")
-  }
-  if (!is.numeric(gamma) || gamma < 0) {
-    stop("Il parametro gamma deve essere un valore numerico non negativo.")
-  }
-  if (!is.numeric(delta) || delta < 0 || delta > 0.5) {
-    stop("Il parametro delta deve essere un valore numerico compreso tra 0 e 0.5.")
-  }
-  if (!is.numeric(k) || k <= 0 || k %% 1 != 0) {
-    stop("Il parametro k deve essere un intero positivo.")
-  }
+negTS <- df %>% filter(sentiment=="neg") %>% select(score, tweetcreatedts)
+neuTS <- df %>% filter(sentiment=="neu") %>% select(score, tweetcreatedts)
+posTS <- df %>% filter(sentiment=="pos") %>% select(score, tweetcreatedts)
+```
 
-  prices <- data$value
-  n <- length(prices)  # Lunghezza della serie
-  outliers <- rep(FALSE, n)  # Vettore per memorizzare gli outliers
+```{r, include=FALSE}
 
-  for (i in seq_len(n)) {
-    # Determinazione dell'intorno
-    if (i <= k / 2) {
-      # Prima parte della giornata
-      window <- prices[1:min(n, k)]
-    } else if (i > (n - k / 2)) {
-      # Ultima parte della giornata
-      window <- prices[max(1, n - k + 1):n]
-    } else {
-      # Parte centrale della giornata
-      half_k <- floor(k / 2)
-      window <- prices[(i - half_k):(i + half_k)]
-    }
+library(urca)
 
-    # Calcolo della media troncata e della deviazione standard
-    trimmed_mean <- mean(window, trim = delta)
-    std_dev <- sd(window)
+Box.test(negTS$score, lag = 10, type = "Ljung-Box")
+negTS %>% select(score) %>% as.ts() %>% ur.kpss() %>% summary()
 
-    # Evitare varianze nulle
-    threshold <- 3 * std_dev + gamma
+Box.test(neuTS$score, lag = 10, type = "Ljung-Box")
+neuTS %>% select(score) %>% as.ts() %>% ur.kpss() %>% summary()
 
-    # Verifica della condizione
-    if (abs(prices[i] - trimmed_mean) >= threshold) {
-      outliers[i] <- TRUE  # Marca l'osservazione come outlier
-    }
-  }
+Box.test(posTS$score, lag = 10, type = "Ljung-Box")
+posTS %>% select(score) %>% as.ts() %>% ur.kpss() %>% summary()
+```
 
-  # # Creazione del plot
-  # plot(data$time, data$value, type = "o", col = ifelse(outliers, "red", "black"), pch = 19, main = "Serie Temporale con Outliers",
-  #      xlab = "Tempo", ylab = "Valore")
-  # legend("topright", legend = c("Normale", "Outlier"), col = c("black", "red"), pch = 19)
++---------------+----------------------------+---------------------------+
+| Score         | KPSS Test                  | Ljung-Box Test            |
++:=============:+:==========================:+:=========================:+
+| Negativo      | ```                        | ```                       |
+|               | test-statistic is: 73.8069 | p-value < 2.2e-16         |
+|               | ```                        | ```                       |
+|               |                            |                           |
+|               | Non stazionario            | Autocorrelazione presente |
++---------------+----------------------------+---------------------------+
+| Neutrale      | ```                        | ```                       |
+|               | test-statistic is: 17.6576 | p-value < 2.2e-16         |
+|               | ```                        | ```                       |
+|               |                            |                           |
+|               | Non stazionario            | Autocorrelazione presente |
++---------------+----------------------------+---------------------------+
+| Positivo      | ```                        | ```                       |
+|               | test-statistic is: 34.624  | p-value < 2.2e-16         |
+|               | ```                        | ```                       |
+|               |                            |                           |
+|               | Non stazionario            | Autocorrelazione presente |
++---------------+----------------------------+---------------------------+
 
-  # Rimuovere gli outliers
-  data_no_outliers <- data[!outliers, ]
+Dai risultati del test si evince che le serie **non sono stazionarie** e non seguono una distribuzione white noise quindi **presentano autocorrelazione** nei ritardi definiti. Questo risultato potrebbe sembrare correlato ma ricordiamo che *autocorrelazione non implica non-stazionarietà* così e viceversa in quanto la stazionarietà riguarda proprietà generali della serie nel tempo, mentre il test di Ljung-Box per l'autocorrelazione si concentra su pattern di dipendenza temporale osservando sotto-intervalli di lag.
 
-  
-  # # Creazione del plot senza outliers
-  # plot(data_no_outliers$time, data_no_outliers$value, col = "black", main = "Serie Temporale senza Outliers",
-  #      xlab = "Tempo", ylab = "Valore")
+Osserviamo se questa struttura della serie persiste anche se diminuiamo la frequenza di osservazione dei dati. In particolare concentriamoci nell'analizzare le serie a frequenze di 10 minuti, 30 minuti e 1 ora.
 
-  return(list(outliers = outliers, data_no_outliers = data_no_outliers))
+Aggregazione ogni **10 minuti**:
+
+```{r}
+##### visualizzazione ts aggregate per 10 minuti #####
+negTS <- xts(negTS$score, order.by = negTS$tweetcreatedts)
+neuTS <- xts(neuTS$score, order.by = neuTS$tweetcreatedts)
+posTS <- xts(posTS$score, order.by = posTS$tweetcreatedts)
+
+score10neg <- aggregateTS(negTS, alignBy = "minutes", alignPeriod = 10)
+score10neu <- aggregateTS(neuTS, alignBy = "minutes", alignPeriod = 10)
+score10pos <- aggregateTS(posTS, alignBy = "minutes", alignPeriod = 10)
+
+dfTS10 <- data.frame(
+  time = index(score10neg),
+  neg = as.numeric(score10neg),
+  neu = as.numeric(score10neu),
+  pos = as.numeric(score10pos)
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+ggplot(dfTS10, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("<Score> aggregato ogni 10 minuti")+
+  facet_wrap(~Series, scales = "free", ncol = 1)+
+  theme_light()
+```
+
+Osserviamo i risultati dei test:
+
+```{r, include=FALSE}
+Box.test(score10neg, lag = 10, type = "Ljung-Box")
+score10neg %>% ur.kpss() %>% summary()
+
+Box.test(score10neu, lag = 10, type = "Ljung-Box")
+score10neu %>% ur.kpss() %>% summary()
+
+Box.test(score10pos, lag = 10, type = "Ljung-Box")
+score10pos %>% ur.kpss() %>% summary()
+```
+
++---------------+---------------------------+-------------------------------+
+| Score         | KPSS Test                 | Ljung-Box Test                |
++:=============:+:=========================:+:=============================:+
+| Negativo      | ```                       | ```                           |
+|               | test-statistic is: 1.6076 | p-value = 0.5361              |
+|               | ```                       | ```                           |
+|               |                           |                               |
+|               | Non stazionario           | Autocorrelazione non presente |
++---------------+---------------------------+-------------------------------+
+| Neutrale      | ```                       | ```                           |
+|               | test-statistic is: 1.0155 | p-value = 3.389e-06           |
+|               | ```                       | ```                           |
+|               |                           |                               |
+|               | Non stazionario           | Autocorrelazione presente     |
++---------------+---------------------------+-------------------------------+
+| Positivo      | ```                       | ```                           |
+|               | test-statistic is: 1.5981 | p-value = 0.01512             |
+|               | ```                       | ```                           |
+|               |                           |                               |
+|               | Non stazionario           | Autocorrelazione presente     |
++---------------+---------------------------+-------------------------------+
+
+Notiamo che a questa frequenza la statistica test per l'ipotesi di stazionarietà è scesa di molto ma rimane ancora più grande della soglia critica del 1%. Mentre a questo livello la serie dello score negativa diviene White Noise e perde quindi autocorrelazione nei ritardi.
+
+Aggregazione ogni **30 minuti**:
+
+```{r}
+##### visualizzazione ts aggregate per 30 minuti #####
+score30neg <- aggregateTS(negTS, alignBy = "minutes", alignPeriod = 30)
+score30neu <- aggregateTS(neuTS, alignBy = "minutes", alignPeriod = 30)
+score30pos <- aggregateTS(posTS, alignBy = "minutes", alignPeriod = 30)
+
+dfTS30 <- data.frame(
+  time = index(score30neg),
+  neg = as.numeric(score30neg),
+  neu = as.numeric(score30neu),
+  pos = as.numeric(score30pos)
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+ggplot(dfTS30, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("<Score> aggregato ogni 30 minuti")+
+  facet_wrap(~Series, scales = "free", ncol = 1)+
+  theme_light()
+```
+
+Osserviamo i risultati dei test:
+
+```{r, include=FALSE}
+Box.test(score30neg, lag = 10, type = "Ljung-Box")
+score30neg %>% ur.kpss() %>% summary()
+
+Box.test(score30neu, lag = 10, type = "Ljung-Box")
+score30neu %>% ur.kpss() %>% summary()
+
+Box.test(score30pos, lag = 10, type = "Ljung-Box")
+score30pos %>% ur.kpss() %>% summary()
+```
+
++---------------+---------------------------+-------------------------------+
+| Score         | KPSS Test                 | Ljung-Box Test                |
++:=============:+:=========================:+:=============================:+
+| Negativo      | ```                       | ```                           |
+|               | test-statistic is: 0.7737 | p-value = 0.07077             |
+|               | ```                       | ```                           |
+|               |                           |                               |
+|               | Non stazionario           | Autocorrelazione non presente |
++---------------+---------------------------+-------------------------------+
+| Neutrale      | ```                       | ```                           |
+|               | test-statistic is: 0.2137 | p-value = 0.0007944           |
+|               | ```                       | ```                           |
+|               |                           |                               |
+|               | Stazionario               | Autocorrelazione presente     |
++---------------+---------------------------+-------------------------------+
+| Positivo      | ```                       | ```                           |
+|               | test-statistic is: 0.2168 | p-value = 0.357               |
+|               | ```                       | ```                           |
+|               |                           |                               |
+|               | Stazionario               | Autocorrelazione non presente |
++---------------+---------------------------+-------------------------------+
+
+Aggregazione ogni **1 ora**:
+
+```{r}
+##### visualizzazione ts aggregate per 1 ora #####
+score1hneg <- aggregateTS(negTS, alignBy = "hours", alignPeriod = 1)
+score1hneu <- aggregateTS(neuTS, alignBy = "hours", alignPeriod = 1)
+score1hpos <- aggregateTS(posTS, alignBy = "hours", alignPeriod = 1)
+
+dfTS1h <- data.frame(
+  time = index(score1hneg),
+  neg = as.numeric(score1hneg),
+  neu = as.numeric(score1hneu),
+  pos = as.numeric(score1hpos)
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+ggplot(dfTS1h, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("<Score> aggregato ogni ora")+
+  facet_wrap(~Series, scales = "free", ncol = 1)+
+  theme_light()
+```
+
+Osserviamo i risultati dei test:
+
+```{r, include=FALSE}
+Box.test(score1hneg, lag = 10, type = "Ljung-Box")
+score1hneg %>% ur.kpss() %>% summary()
+
+Box.test(score1hneu, lag = 10, type = "Ljung-Box")
+score1hneu %>% ur.kpss() %>% summary()
+
+Box.test(score1hpos, lag = 10, type = "Ljung-Box")
+score1hpos %>% ur.kpss() %>% summary()
+```
+
++---------------+---------------------------+-------------------------------+
+| Score         | KPSS Test                 | Ljung-Box Test                |
++:=============:+:=========================:+:=============================:+
+| Negativo      | ```                       | ```                           |
+|               | test-statistic is: 0.3793 | p-value = 0.1761              |
+|               | ```                       | ```                           |
+|               |                           |                               |
+|               | Stazionario               | Autocorrelazione non presente |
++---------------+---------------------------+-------------------------------+
+| Neutrale      | ```                       | ```                           |
+|               | test-statistic is: 0.1504 | p-value = 0.09925             |
+|               | ```                       | ```                           |
+|               |                           |                               |
+|               | Stazionario               | Autocorrelazione non presente |
++---------------+---------------------------+-------------------------------+
+| Positivo      | ```                       | ```                           |
+|               | test-statistic is: 0.1444 | p-value = 0.4608              |
+|               | ```                       | ```                           |
+|               |                           |                               |
+|               | Stazionario               | Autocorrelazione non presente |
++---------------+---------------------------+-------------------------------+
+
+Quello che si osserva è che man mano che aggreghiamo i dati ad una frequenza più bassa le serie tendono ad assumere distribuzione *white noise* mentre così come anche la stazionarietà viene raggiunta da tutte le serie all'ultima frequenza.
+
+### Non-seasonal ARIMA models
+
+ARIMA è l'acronimo di AutoRegressive Integrated Moving Avarage, mette insieme il concetto della differenziazione con i modelli autoregressivi e media mobile.
+
+$$
+y'_{t} = c + \phi_{1}y'_{t-1} + \dots + \phi_{p}y'_{t-p} + \theta_{1}\varepsilon_{t-1} + \dots + \theta_{p}\varepsilon_{t-p}
+$$
+
+In *backshift-notation* diventa:
+
+$$
+(1 - \phi_{1}B - \dots - \phi_{p}B^{p})(1-B)^{d}y_{t} = c + (1+\theta_{1}B+\dots+\theta_{q}B^{q})\varepsilon_{t}
+$$
+
+Dove $y'_{t}$ è la serie differenziata (anche più di una volta), mentre i predittori sono i *lag* della serie e i *lag-errors* sempre della serie. Questa struttura prende il nome di **ARIMA(p, d, q)** **Model** dove
+
+-   *p* = ordine della parte autoregressiva
+-   *d* = gradi di differenziazione
+-   *q* = ordine della media mobile
+
+Molti modelli fra i più conosciuti sono solo un caso specifico del modello ARIMA(p, d, q) infatti
+
+-   White Noise = ARIMA(0, 0 , 0)
+
+-   Random Walk = ARIMA(0, 1, 0)
+
+-   Autoregressione = ARIMA(p, 0, 0)
+
+-   Media Mobile = ARIMA(0, 0 , q)
+
+Stimiamo un modello ARIMA(p, d, q) per le singole serie:
+
+```{r}
+arima_summary <- function(model, name) {
+  tibble(
+    Serie = name,
+    ARIMA = paste0("(", model$arma[1], ",", model$arma[6], ",", model$arma[2], ")"),
+    AIC = model$aic,
+    AICc = model$aicc,
+    BIC = model$bic
+  )
 }
-
-# Parametri dell'algoritmo
-gamma <- 0.01
-delta <- 0.2
-k <- 60
-#Identificazione degli outliers
-outliers <- detect_outliers(negative, gamma, delta, k)
 ```
 
 ```{r}
+## 10 minuti ##
+fitNEG10 <- auto.arima(score10neg, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
 
-negative$outlier <- outliers$outliers
-ggplot(negative, aes(x = time, y = value, color = outlier)) +
-    geom_point() +
-    geom_line() +
-    scale_color_manual(values = c("grey50", "red"), labels = c("Normale", "Outlier")) +
-    labs(title = "Serie Temporale con Outliers", x = "Tempo", y = "Valore", color = "Legenda") +
-    theme_minimal()
+fitNEU10 <- auto.arima(score10neu, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
 
-# ggplot(data= outliers$data_no_outliers, aes(x = time, y = value)) +
-#     geom_line(color = "black") +
-#     labs(title = "Serie Temporale senza Outliers", x = "Tempo", y = "Valore") +
+fitPOS10 <- auto.arima(score10pos, seasonal = FALSE, 
+                     stepwise = FALSE, 
+                     approximation = FALSE)
+
+## 30 minuti ##
+fitNEG30 <- auto.arima(score30neg, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitNEU30 <- auto.arima(score30neu, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitPOS30 <- auto.arima(score30pos, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+## 1h ##
+fitNEG1h <- auto.arima(score1hneg, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitNEU1h <- auto.arima(score1hneu, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitPOS1h <- auto.arima(score1hpos, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+results <- bind_rows(
+  arima_summary(fitNEG10, "10min_NEG"),
+  arima_summary(fitNEU10, "10min_NEU"),
+  arima_summary(fitPOS10, "10min_POS"),
+  arima_summary(fitNEG30, "30min_NEG"),
+  arima_summary(fitNEU30, "30min_NEU"),
+  arima_summary(fitPOS30, "30min_POS"),
+  arima_summary(fitNEG1h, "1h_NEG"),
+  arima_summary(fitNEU1h, "1h_NEU"),
+  arima_summary(fitPOS1h, "1h_POS")
+)
+
+print(results)
+```
+
+Osserviamo come i modelli ARIMA hanno fittato sui dati:
+
+-   **Frequenza di 10 minuti**
+
+```{r, fig.height=8}
+library(gridExtra)
+## 10 minuti ##
+#fitNEG10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df10NEG <- data.frame(
+  time = index(score10neg),
+  neg = as.numeric(score10neg),
+  fittedNEG = as.numeric(fitted(fitNEG10))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(df10NEG, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "fittedNEG" = "darkred")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+#fitNEU10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df10NEU <- data.frame(
+  time = index(score10neu),
+  neu = as.numeric(score10neu),
+  fittedNEU = as.numeric(fitted(fitNEU10))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(df10NEU, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "fittedNEU" = "darkblue")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+#fitPOS10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df10POS <- data.frame(
+  time = index(score10pos),
+  pos = as.numeric(score10pos),
+  fittedPOS = as.numeric(fitted(fitPOS10))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(df10POS, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "fittedPOS" = "darkgreen")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
+-   **Frequenza di 30 minuti**
+
+```{r, fig.height=8}
+## 30 minuti ##
+#fitNEG30 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df30NEG <- data.frame(
+  time = index(score30neg),
+  neg = as.numeric(score30neg),
+  fittedNEG = as.numeric(fitted(fitNEG30))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(df30NEG, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "fittedNEG" = "darkred")) +
+  ggtitle("ARIMA(0,1,4)")+
+  theme_light()
+
+#fitNEU30 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df30NEU <- data.frame(
+  time = index(score30neu),
+  neu = as.numeric(score30neu),
+  fittedNEU = as.numeric(fitted(fitNEU30))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(df30NEU, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "fittedNEU" = "darkblue")) +
+  ggtitle("ARIMA(1,0,1) with non-zero mean ")+
+  theme_light()
+
+#fitPOS30 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df30POS <- data.frame(
+  time = index(score30pos),
+  pos = as.numeric(score30pos),
+  fittedPOS = as.numeric(fitted(fitPOS30))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(df30POS, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "fittedPOS" = "darkgreen")) +
+  ggtitle("ARIMA(1,0,0) with non-zero mean ")+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
+-   **Frequenza di 1 ora**
+
+```{r, fig.height=8}
+## 1h ##
+#fitNEG1h %>% forecast(h=12) %>% autoplot()+theme_light()
+df1hNEG <- data.frame(
+  time = index(score1hneg),
+  neg = as.numeric(score1hneg),
+  fittedNEG = as.numeric(fitted(fitNEG1h))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(df1hNEG, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "fittedNEG" = "darkred")) +
+  ggtitle("ARIMA(1,0,1) with non-zero mean")+
+  theme_light()
+
+#fitNEU1h %>% forecast(h=12) %>% autoplot()+theme_light()
+df1hNEU <- data.frame(
+  time = index(score1hneu),
+  neu = as.numeric(score1hneu),
+  fittedNEU = as.numeric(fitted(fitNEU1h))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(df1hNEU, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "fittedNEU" = "darkblue")) +
+  ggtitle("ARIMA(1,0,1) with non-zero mean")+
+  theme_light()
+
+#fitPOS1h %>% forecast(h=12) %>% autoplot()+theme_light()
+df1hPOS <- data.frame(
+  time = index(score1hpos),
+  pos = as.numeric(score1hpos),
+  fittedPOS = as.numeric(fitted(fitPOS1h))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(df1hPOS, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "fittedPOS" = "darkgreen")) +
+  ggtitle("ARIMA(2,0,0) with non-zero mean")+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
+commento.
+
+### ETS Model
+
+Spiegazione modello.
+
+```{r}
+## 10 min ##
+ets10neg <- ets(score10neg)
+autoplot(ets10neg)+theme_light()
+
+ets10neu <- ets(score10neu)
+autoplot(ets10neu)+theme_light()
+
+ets10pos <- ets(score10pos)
+autoplot(ets10pos)+theme_light()
+
+
+## 30 min ##
+ets30neg <- ets(score30neg)
+autoplot(ets30neg)+theme_light()
+
+ets30neu <- ets(score30neu)
+autoplot(ets30neu)+theme_light()
+
+ets30pos <- ets(score30pos)
+autoplot(ets30pos)+theme_light()
+
+## 1 ora ##
+ets1hneg <- ets(score1hneg)
+autoplot(ets1hneg)+theme_light()
+
+ets1hneu <- ets(score1hneu)
+autoplot(ets1hneu)+theme_light()
+
+ets1hpos <- ets(score1hpos)
+autoplot(ets1hpos)+theme_light()
+
+```
+
+### Dynamic Regression Model
+
+Nel codice del libro utilizza questo modello con due time series potrebbe essere interessante nel mio caso.
+
+### Advance forecasting methods
+
+nella sezione Complex seasonality utilizza fourier nelle xreg che vengono usate nelle dynamic regression model, magari anche nel nostro caso potrebbe tornare utile
+
+### Analisi per time stamp di 10 minuti:
+
+Per questo motivo osserviamo se c'è correlazione fra le serie
+
+```{r}
+MTS10 <- cbind(
+  neg = score10neg,
+  neu = score10neu,
+  pos = score10pos
+)
+
+GGally::ggpairs(as.data.frame(MTS10))+
+  theme_light()+
+  ggtitle("Confronto Score's time series")
+```
+
+Non ci sono correlazioni lineari fra i dati delle time series, osserviamo invece la **Cross-Correlazione** per individuare possibili lag tra le serie che potrebbero o anticipare o seguire valori di altre serie storiche per un dato instante di tempo t:
+
+```{r}
+ggCcf(as.ts(score10neg),as.ts(score10neu), lag.max = 100)+ggtitle("CCF: Score-negativo & Score-neutrale")+theme_light()
+
+ggCcf(as.ts(score10neu),as.ts(score10neg), lag.max = 100)+ggtitle("CCF: Score-neutrale & Score-negativo")+theme_light()
+```
+
+Si evince che ci sono alcuni ritardi della serie negativa e neutrale che hanno effetto negativo/positivo sull'altra all'instante t.
+
+```{r}
+## commento degli CCF su cosa possiamo fare ##
+# 
+# 1. Modellazione causale o predittiva
+# 
+# Se uno specifico ritardo (lag) è significativo:
+# 
+# Modello di previsione: Puoi usare la serie che precede (la serie "causa") come input per prevedere la serie ritardata. Questo può essere fatto con:
+# 
+# Modelli lineari, come regressione laggata.
+# 
+# Modelli ARIMAX (autoregressivi con input esogeni) o VAR (Vector AutoRegressive) se hai più variabili.
+# 
+# Modelli di machine learning (come LSTM o reti neurali ricorrenti), se il sistema è complesso.
+# 
+# Esempio: Se i picchi della serie A precedono quelli della serie B di 3 unità temporali, puoi includere $A_{t-3}$​ come predittore per $B_t$​.
+# 
+# 2. Analisi della relazione causa-effetto
+# 
+# Causalità di Granger: Usa i ritardi significativi identificati nei CCF per testare se una serie "causa" l'altra nel senso di Granger. Questo ti aiuta a verificare se includere la serie "causa" migliora significativamente la previsione della serie "effetto".
+# 
+# Approfondimenti di sistema: La relazione ritardata può essere interpretata come un indizio di interazione nei processi fisici, economici o biologici che governano le due serie.
+# 
+# 3. Individuazione di ritardi ottimali
+# 
+# Se esistono ritardi multipli significativi, puoi:
+# 
+# Selezionare il ritardo migliore: Quello con il valore massimo (o più significativo) della funzione di cross-correlazione è spesso il ritardo più rilevante per applicazioni predittive o causali.
+# 
+# Includere più ritardi: Includere più ritardi nel modello (ad esempio, $A_{t-1}, A_{t-2}, A_{t-3}$​) se si sospetta che la relazione non sia immediata ma distribuita nel tempo.
+```
+
+```{r}
+# Identifichiamo possibili outliers nelle serie storiche utilizzando Algoritmo Brownlees-Gallo
+# 
+# detect_outliers <- function(data, gamma, delta, k) {
+#   # Verifica input
+#   if (!is.data.frame(data) || !all(c("time", "value") %in% names(data))) {
+#     stop("L'input deve essere un data.frame con colonne 'time' e 'value'.")
+#   }
+#   if (!is.numeric(data$value)) {
+#     stop("La colonna 'value' deve contenere valori numerici.")
+#   }
+#   if (!is.numeric(gamma) || gamma < 0) {
+#     stop("Il parametro gamma deve essere un valore numerico non negativo.")
+#   }
+#   if (!is.numeric(k) || k <= 0 || k %% 1 != 0) {
+#     stop("Il parametro k deve essere un intero positivo.")
+#   }
+# 
+#   prices <- data$value
+#   n <- length(prices)  # Lunghezza della serie
+#   outliers <- rep(FALSE, n)  # Vettore per memorizzare gli outliers
+# 
+#   for (i in seq_len(n)) {
+#     # Determinazione dell'intorno
+#     if (i <= k / 2) {
+#       # Prima parte della giornata
+#       window <- prices[1:min(n, k)]
+#     } else if (i > (n - k / 2)) {
+#       # Ultima parte della giornata
+#       window <- prices[max(1, n - k + 1):n]
+#     } else {
+#       # Parte centrale della giornata
+#       half_k <- floor(k / 2)
+#       window <- prices[(i - half_k):(i + half_k)]
+#     }
+# 
+#     # Calcolo della media troncata e della deviazione standard
+#     trimmed_mean <- mean(window, trim = delta)
+#     std_dev <- sd(window)
+# 
+#     # Evitare varianze nulle
+#     threshold <- 3 * std_dev + gamma
+# 
+#     # Verifica della condizione
+#     if (abs(prices[i] - trimmed_mean) >= threshold) {
+#       outliers[i] <- TRUE  # Marca l'osservazione come outlier
+#     }
+#   }
+# 
+#   # # Creazione del plot
+#   # plot(data$time, data$value, type = "o", col = ifelse(outliers, "red", "black"), pch = 19, main = "Serie Temporale con Outliers",
+#   #      xlab = "Tempo", ylab = "Valore")
+#   # legend("topright", legend = c("Normale", "Outlier"), col = c("black", "red"), pch = 19)
+# 
+#   # Rimuovere gli outliers
+#   data_no_outliers <- data[!outliers, ]
+# 
+#   
+#   # # Creazione del plot senza outliers
+#   # plot(data_no_outliers$time, data_no_outliers$value, col = "black", main = "Serie Temporale senza Outliers",
+#   #      xlab = "Tempo", ylab = "Valore")
+# 
+#   return(list(outliers = outliers, data_no_outliers = data_no_outliers))
+# }
+
+
+# # Parametri da testare
+# gamma_values <- seq(0.1, 1, by = 0.1)   # Valori di gamma (più dettagliati)
+# delta_values <- seq(0.02, 0.2, by = 0.02) # Valori di delta (più dettagliati)
+# k_values <- seq(33, 60, by = 3)         # Valori di k (più ampia finestra temporale
+# 
+# # Funzione per testare combinazioni di parametri
+# test_outliers <- function(series, gamma_values, delta_values, k_values) {
+#   results <- list()  # Lista per salvare i risultati
+# 
+#   # Loop su tutte le combinazioni di parametri
+#   for (gamma in gamma_values) {
+#     for (delta in delta_values) {
+#       for (k in k_values) {
+#         # Esegui l'algoritmo di rilevazione outlier
+#         outliers_result <- detect_outliers(series, gamma, delta, k)
+#         n_outliers <- sum(outliers_result$outliers)  # Conta TRUE
+# 
+#         # Salva i risultati
+#         results[[length(results) + 1]] <- list(
+#           gamma = gamma,
+#           delta = delta,
+#           k = k,
+#           n_outliers = n_outliers,
+#           outliers_result = outliers_result  # Salva il risultato completo
+#         )
+#       }
+#     }
+#   }
+# 
+#   return(results)
+# }
+
+
+# # Applicazione a ciascuna serie temporale
+# negative <- dfTS10 %>% filter(Series == "neg") %>% select(time, value)
+# neutral <- dfTS10 %>% filter(Series == "neu") %>% select(time, value)
+# positive <- dfTS10 %>% filter(Series == "pos") %>% select(time, value)
+# 
+# # Testa tutte le combinazioni su ciascuna serie
+# results_neg <- test_outliers(negative, gamma_values, delta_values, k_values)
+# results_neu <- test_outliers(neutral, gamma_values, delta_values, k_values)
+# results_pos <- test_outliers(positive, gamma_values, delta_values, k_values)
+# 
+# # Funzione per trovare la combinazione con più outlier
+# get_best_params <- function(results) {
+#   best_result <- results[[which.max(sapply(results, function(x) x$n_outliers))]]
+#   return(best_result)
+# }
+# 
+# # Trova i migliori parametri per ciascuna serie
+# best_neg <- get_best_params(results_neg)
+# best_neu <- get_best_params(results_neu)
+# best_pos <- get_best_params(results_pos)
+# 
+# # Output dei migliori parametri
+# cat("Migliori parametri per la serie negativa:\n")
+# print(best_neg[1:3])
+# 
+# cat("\nMigliori parametri per la serie neutrale:\n")
+# print(best_neu[1:3])
+# 
+# cat("\nMigliori parametri per la serie positiva:\n")
+# print(best_pos[1:3])
+
+
+# negative$outlier <- best_neg$outliers_result$outliers
+# ggplot(negative, aes(x = time, y = value, color = outlier)) +
+#     geom_point() +
+#     geom_line() +
+#     scale_color_manual(values = c("grey50", "red"), labels = c("Normale", "Outlier")) +
+#     labs(title = "Serie Temporale con Outliers", x = "Tempo", y = "Valore", color = "Legenda") +
 #     theme_minimal()
-
-df_out <- negative %>% filter(outlier==TRUE)
-ggplot(data= df_out, aes(x = time, y = value)) +
-    geom_line(color = "red") +
-    labs(title = "Serie Temporale degli Outliers", x = "Tempo", y = "Valore") +
-    theme_minimal()
-
-# checkresiduals(df_out$value) qualche errore poiché ci sono NAs
-acf(df_out$value, lag.max = 1000)
-Pacf(df_out$value, lag.max = 1000)
-Box.test(df_out$value, type = "Ljung-Box")
+# 
+# neutral$outlier <- best_neu$outliers_result$outliers
+# ggplot(neutral, aes(x = time, y = value, color = outlier)) +
+#     geom_point() +
+#     geom_line() +
+#     scale_color_manual(values = c("grey50", "red"), labels = c("Normale", "Outlier")) +
+#     labs(title = "Serie Temporale con Outliers", x = "Tempo", y = "Valore", color = "Legenda") +
+#     theme_minimal()
+# 
+# positive$outlier <- best_pos$outliers_result$outliers
+# ggplot(positive, aes(x = time, y = value, color = outlier)) +
+#     geom_point() +
+#     geom_line() +
+#     scale_color_manual(values = c("grey50", "red"), labels = c("Normale", "Outlier")) +
+#     labs(title = "Serie Temporale con Outliers", x = "Tempo", y = "Valore", color = "Legenda") +
+#     theme_minimal()
 ```
 
-Non segue una distribuzione strettamente white noise quindi c'è qualche caratteristica sottostante nell'andamento dei valori anomali nel tempo.
+#### Modellazione Score's time series (10min frequency)
 
-```{r}
-# acf(scoreTS$neg$value, lag.max = 100, main = "Autocorrelazione (Sentiment: neg)")
-# acf(scoreTS$neu$value, lag.max = 100, main = "Autocorrelazione (Sentiment: neu)")
-# acf(scoreTS$pos$value, lag.max = 100, main = "Autocorrelazione (Sentiment: pos)")
+Cerchiamo di sviluppare un modello statistico capace di catturare al meglio la struttura delle Time Series dello score con frequenza di osservazione di 10 minuti. Per farlo percorreremo tutte le possibili strade:
 
-# pacf(scoreTS$neg$value, lag.max = 100, main = "Autocorrelazione parziale (Sentiment: neg)")
-# pacf(scoreTS$neu$value, lag.max = 100, main = "Autocorrelazione parziale (Sentiment: neu)")
-# pacf(scoreTS$pos$value, lag.max = 100, main = "Autocorrelazione parziale (Sentiment: pos)")
-```
+1.  Decomposizione
+
+2.  Modelli Autoregressivi
+
+3.  Modelli ARIMA
+
+4.  Exponential Smoothing model
+
+5.  Tecniche più avanzate di forecasting
+
+    1.  Dynamic Harmonic Regression
+
+    2.  TBATS
+
+    3.  NNETAR
+
+    4.  Bootstrapping
+
+    5.  Neural Network Models
 
 ### Analisi per intervalli di 30 minuti delle frequenze di tweet
 
 Potrebbe essere interessante osservare il numero di tweet effettuati in sotto-intervalli temporali rispetto a tutto il range che abbiamo:
+
 ```{r}
 df_occ <- dataset %>%
   mutate(interval = floor_date(tweetcreatedts, "30 minutes")) %>%
@@ -309,8 +976,7 @@ ggplot(df_occ, aes(x = interval, y = count, color = sentiment)) +
   scale_x_datetime(date_breaks = "6 hours", date_labels = "%d-%b %H:%M")
 ```
 
-Il grafico sembra chiaramente catturare la presenza di periodicità temporale nei dati, per questo motivo
-effettuiamo un'analisi statistica per valutarne l'effettiva presenza.
+Il grafico sembra chiaramente catturare la presenza di periodicità temporale nei dati, per questo motivo effettuiamo un'analisi statistica per valutarne l'effettiva presenza.
 
 ```{r}
 # Trasformazione in formato wide perché più comodo
@@ -342,8 +1008,8 @@ acf(neg_ts, lag.max = 100, main = "Autocorrelazione (Sentiment: neg)")
 
 ```
 
-Il test Ljung-Box valuta se le correlazioni rilevate sono significative, in particolare
-se il p-value è piccolo (<0.05), significa che ci sono correlazioni significative nei dati.
+Il test Ljung-Box valuta se le correlazioni rilevate sono significative, in particolare se il p-value è piccolo (\<0.05), significa che ci sono correlazioni significative nei dati.
+
 ```{r}
 Box.test(neg_ts, lag = 100, type = "Ljung-Box")
 # Box.test(neu_ts, lag = 100, type = "Ljung-Box")
@@ -414,6 +1080,7 @@ autoplot(neg_ts, series="Data") +
 ```
 
 ### Modello Fourier + Media mobile
+
 Identifichiamo quanti termini di Fourier da usare
 
 ```{r}
@@ -436,6 +1103,7 @@ model5 <- tslm(neg_ts ~ fourier_terms5)
 # lines(fitted(model2), col = "red", lwd = 1.5)
 # summary(model2)
 ```
+
 ```{r}
 # Estraggo i dati originali e le previsioni
 neg_ts_df <- data.frame(time = index(neg_ts), value = coredata(neg_ts))
@@ -449,12 +1117,14 @@ ggplot(neg_ts_df, aes(x = time)) +
        y = "Conteggio dei tweet") +
   theme_bw()
 ```
+
 ```{r}
 # plot.new()
 # plot(neg_ts, main = "Periodicità stimata con 8 Termini di Fourier", col = "black", ylab = "Conteggio dei tweet", xlab = "Tempo")+
 # lines(fitted(model8), col = "red", lwd = 1.5)
 # summary(model8)
 ```
+
 ```{r}
 # plot.new()
 # plot(neg_ts, main = "Periodicità stimata con 11 Termini di Fourier", col = "black", ylab = "Conteggio dei tweet", xlab = "Tempo")+
@@ -478,6 +1148,7 @@ autoplot(neg_ts, series="Data") +
 model_neg =  tslm(neg_ts ~ fourier_terms5 + ma(neg_ts, 24))
 summary(model_neg)
 ```
+
 ```{r}
 autoplot(neg_ts, series="Data") +
   autolayer(fitted(model_neg), series = "Model") +
@@ -488,6 +1159,7 @@ autoplot(neg_ts, series="Data") +
 ```
 
 ### Forecast con decomposizione
+
 ```{r}
 fit %>% forecast(method="arima") %>%
   autoplot() + ylab("freq") + theme_bw()
@@ -528,12 +1200,19 @@ fit %>% forecast(method="arima") %>%
 
 ```
 
+```{r}
+# NUMERO di utenti che hanno postato
+freq_tweets <- as.data.frame(table(dataset$userid))
+names(freq_tweets) <- c("UserID", "Num.Tweets")
+head(freq_tweets)
+summary(freq_tweets)
 
+# Specifica la soglia per il gruppo1
+soglia1 <- 3  # Esempio: Occorrenze > 3
 
+# Filtrare i gruppi
+gruppo1 <- subset(freq_tweets, Num.Tweets > soglia1)
+gruppo2 <- subset(freq_tweets, Num.Tweets <= soglia1 & Num.Tweets > 1) # Occorrenze intermedie
+gruppo3 <- subset(freq_tweets, Num.Tweets <= 1) # Occorrenze basse
 
-
-
-
-
-
-
+```
