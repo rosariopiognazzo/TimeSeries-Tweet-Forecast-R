@@ -59,19 +59,19 @@ df_occ10 <- dataset %>%
   summarise(count = n(), .groups = "drop") %>%
   arrange(interval, sentiment)
 
-df_occ30 <- dataset %>%   
+df_occ30 <- dataset %>%
   mutate(interval = floor_date(tweetcreatedts, "30 minutes")) %>% 
   group_by(interval, sentiment) %>% 
   summarise(count = n(), .groups = "drop") %>%
   arrange(interval, sentiment)
 
-df_occ1h <- dataset %>%   
+df_occ1h <- dataset %>%
   mutate(interval = floor_date(tweetcreatedts, "1 hours")) %>% 
   group_by(interval, sentiment) %>% 
   summarise(count = n(), .groups = "drop") %>%
   arrange(interval, sentiment)
 
-df_occ6h <- dataset %>%   
+df_occ6h <- dataset %>%
   mutate(interval = floor_date(tweetcreatedts, "6 hours")) %>% 
   group_by(interval, sentiment) %>% 
   summarise(count = n(), .groups = "drop") %>%
@@ -667,21 +667,6 @@ grid.arrange(p1, p2, p3, ncol=1)
 ```
 
 Spiegare il significato di aver fatto la decomposizione.
-
-```{r}
-# NUMERO di utenti che hanno postato 
-freq_tweets <- as.data.frame(table(dataset$userid)) 
-names(freq_tweets) <- c("UserID", "Num.Tweets") 
-head(freq_tweets) 
-summary(freq_tweets)  
-
-# Specifica la soglia per il gruppo1 
-soglia1 <- 3  # Esempio: Occorrenze > 3  
-# Filtrare i gruppi 
-gruppo1 <- subset(freq_tweets, Num.Tweets > soglia1) 
-gruppo2 <- subset(freq_tweets, Num.Tweets <= soglia1 & Num.Tweets > 1) # Occorrenze intermedie 
-gruppo3 <- subset(freq_tweets, Num.Tweets <= 1) # Occorrenze basse 
-```
 
 ### Valutazione dei modelli
 

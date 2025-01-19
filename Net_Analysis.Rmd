@@ -1,0 +1,365 @@
+---
+title: "Network_analysis"
+author: "Rosario Pio Gnazzo"
+date: "2025-01-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      message=FALSE, 
+                      warning=FALSE, 
+                      fig.align='center', fig.width = 10)
+options(xts_check_TZ = FALSE)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(highfrequency)
+library(xts)
+library(forecast)
+library(lubridate)
+library(gridExtra)
+library(urca)
+library(tibble)
+
+library(igraph)
+#detach(package:igraph)
+library(network)
+library(intergraph)
+library(GGally)
+```
+
+```{r}
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
+
+#laptop
+#Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
+
+dataset <- Sentiment_fr_tweet_2023
+
+dataset <- dataset %>%
+  mutate(userid = as.character(userid),
+         username = as.character(username),
+         acctdesc = as.character(acctdesc),
+         location = as.character(location),
+         following = as.numeric(following),
+         followers = as.numeric(followers),
+         totaltweets = as.numeric(totaltweets),
+         tweetid = as.character(tweetid),
+         retweetcount = as.numeric(retweetcount),
+         favorite_count = as.numeric(favorite_count),
+         text = as.character(text),
+         language = as.character(language),
+         favorite_count = as.numeric(favorite_count),
+         
+         is_retweet = as.factor(is_retweet),
+         original_tweet_id = format(as.numeric(original_tweet_id), 
+                                    scientific = FALSE),
+         original_tweet_userid = format(as.numeric(original_tweet_userid), 
+                                    scientific = FALSE),
+         original_tweet_username = as.character(original_tweet_username),
+         
+         in_reply_to_status_id = format(as.numeric(in_reply_to_status_id), 
+                                    scientific = FALSE),
+         in_reply_to_user_id = format(as.numeric(in_reply_to_user_id), 
+                                    scientific = FALSE),
+         in_reply_to_screen_name = as.character(in_reply_to_screen_name),
+           
+         is_quote_status = as.factor(is_quote_status),
+         quoted_status_id = format(as.numeric(quoted_status_id), 
+                                    scientific = FALSE),
+         quoted_status_userid = format(as.numeric(quoted_status_userid), 
+                                    scientific = FALSE),
+         quoted_status_username = as.character(quoted_status_username),
+         
+         sentiment = as.factor(sentiment),
+         score = as.numeric(score)
+         )
+```
+
+```{r}
+# Partizionamento varie tipologie di tweet
+dfPartizionati <- dataset %>%
+  mutate(
+    Tipo_Tweet = case_when(
+      # Retweet
+      is_retweet == TRUE ~ "Retweet",
+      # Risposte
+      in_reply_to_status_id != "                  0" & is_retweet == FALSE ~ "Risposta",
+      # Citazioni
+      is_quote_status == TRUE & is_retweet == FALSE & in_reply_to_status_id == "                  0" ~ "Citazione",
+      # Tweet Normali
+      TRUE ~ "Normale"
+    )
+  )
+
+#percentuali delle tipologie di tweet
+(table(dfPartizionati$Tipo_Tweet)/nrow(dataset)) * 100
+```
+
+```{r}
+# Dataset globale per utente
+#
+# Aggregazione per utente
+dfUtenti <- dfPartizionati %>%
+  group_by(userid, username) %>%
+  summarise(
+    # Conteggio tweet per categoria
+    Totale_Tweet = n(),
+    Totale_Retweet = sum(Tipo_Tweet == "Retweet"),
+    Totale_Risposte = sum(Tipo_Tweet == "Risposta"),
+    Totale_Citazioni = sum(Tipo_Tweet == "Citazione"),
+    Totale_Normali = sum(Tipo_Tweet == "Normale"),
+    
+    # Andamenti temporali
+    Following_Min = min(following, na.rm = TRUE),
+    Following_Max = max(following, na.rm = TRUE),
+    Followers_Min = min(followers, na.rm = TRUE),
+    Followers_Max = max(followers, na.rm = TRUE),
+    Totaltweets_Min = min(totaltweets, na.rm = TRUE),
+    Totaltweets_Max = max(totaltweets, na.rm = TRUE),
+    
+    # Sentiment
+    Sentiment_Pos = mean(score[sentiment == "pos"], na.rm = TRUE),
+    Sentiment_Neu = mean(score[sentiment == "neu"], na.rm = TRUE),
+    Sentiment_Neg = mean(score[sentiment == "neg"], na.rm = TRUE),
+    
+    # Intervallo temporale dei dati
+    Data_Inizio = min(tweetcreatedts, na.rm = TRUE),
+    Data_Fine = max(tweetcreatedts, na.rm = TRUE),
+    
+    # Interazioni calcolate dai tipi di tweet
+    Totale_Interazioni = Totale_Risposte + Totale_Citazioni,
+    
+    # Coinvolgimento
+    Media_Retweet = mean(retweetcount, na.rm = TRUE),
+    Media_Like = mean(favorite_count, na.rm = TRUE),
+    Totale_Retweet = sum(retweetcount, na.rm = TRUE),
+    Totale_Like = sum(favorite_count, na.rm = TRUE),
+    
+    # Rapporto attività/account
+    Giorni_Attivi = as.numeric(difftime(max(tweetcreatedts, na.rm = TRUE), min(tweetcreatedts, na.rm = TRUE), units = "days")),
+    Tweet_Giornalieri_Medi = Totale_Tweet / Giorni_Attivi,
+    Rapporto_Follower_Following = mean(followers / following, na.rm = TRUE),
+    
+    # Distribuzione temporale delle attività
+    Orario_Preferito = names(sort(table(tweetcreatedts), decreasing = TRUE)[1])
+  ) %>%
+  ungroup()
+
+# Calcolo delle metriche di attività e influenza e classificazione
+dfUtenti <- dfUtenti %>%
+  mutate(
+    # Metriche di Attività
+    Interazioni_Totali = Totale_Retweet + Totale_Risposte + Totale_Citazioni,
+    Coerenza_Temporale = Giorni_Attivi / Totale_Tweet,
+    
+    # Metriche di Influenza
+    Engagement_Totale = Totale_Retweet + Totale_Like,
+    Engagement_Relativo = Engagement_Totale / Followers_Max,
+    Media_Retweet_Per_Tweet = Totale_Retweet / Totale_Tweet,
+    Media_Like_Per_Tweet = Totale_Like / Totale_Tweet,
+    
+    # Classificazione per Attività
+    Classe_Attivita = case_when(
+      Totale_Tweet >= quantile(Totale_Tweet, 0.75) ~ "Alta",
+      Totale_Tweet >= quantile(Totale_Tweet, 0.50) ~ "Moderata",
+      TRUE ~ "Bassa"
+    ),
+    
+    # Classificazione per Influenza
+    Classe_Influenza = case_when(
+      Engagement_Relativo >= quantile(Engagement_Relativo, 0.75, na.rm = TRUE) ~ "Alta",
+      Engagement_Relativo >= quantile(Engagement_Relativo, 0.50, na.rm = TRUE) ~ "Moderata",
+      TRUE ~ "Bassa"
+    )
+  )
+
+```
+
+# Network Analysis
+
+Preparazione dei dati
+
+```{r}
+#calcolo il numero di retweet ottenuti da ciascun utente
+n_retweet <- dataset %>%
+  filter(is_retweet == 1) %>%
+  group_by(original_tweet_userid) %>%
+  summarise(retweet_count = n()) %>%
+  arrange(desc(retweet_count))
+
+n_retweet
+# cercare modo di visualizzazione
+```
+
+```{r}
+# identifico i primi k utenti più influenti come gli outliers tra gli utenti che sono stati retwittati:
+Q1 <- quantile(n_retweet$retweet_count, 0.25)
+Q3 <- quantile(n_retweet$retweet_count, 0.75)
+IQR <- Q3 - Q1
+
+# soglia per gli outlier
+threshold <- Q3 + 3 * IQR
+
+# estraggo gli utenti più influenti
+top_users <- n_retweet %>%
+  filter(retweet_count > threshold)
+
+top_users #313 utenti
+
+summary(top_users$retweet_count) # ancora range molto grande
+
+Q1 <- quantile(top_users$retweet_count, 0.25)
+Q3 <- quantile(top_users$retweet_count, 0.75)
+IQR <- Q3 - Q1
+
+# soglia per gli outlier
+threshold <- Q3 + 3 * IQR
+
+# estraggo gli utenti più influenti
+top_users2 <- top_users %>%
+  filter(retweet_count > threshold)
+
+top_users2 #23 utenti
+
+summary(top_users2$retweet_count) #range buono
+```
+
+```{r}
+# bisogna filtrare il dataset per considerare solo i retweet associati ai top utenti
+filtered_data <- dataset %>%
+  filter(is_retweet == 1 & original_tweet_userid %in% top_users2$original_tweet_userid)
+```
+
+Costruzione delle reti di retweet & visualizzazione
+
+```{r}
+# bisogna creare ora un sotto dataset per ogni top utente con i propri retweet
+# Creare una lista di sotto-dataset per ciascun utente chiave
+sub_datasets <- lapply(top_users2$original_tweet_userid, function(user_id) {
+  dataset %>%
+    filter(is_retweet == 1 & original_tweet_userid == user_id) %>%
+    select(from = userid, to = original_tweet_userid, sentiment)
+}) #POSSIBILE MODIFICA: trovare modo di inserire anche il valore score associato
+
+# rinominiamo i dataset per facilità
+names(sub_datasets) <- top_users2$original_tweet_userid
+# ora in ogni elemento della lista sub_datasets ci sono i retweet relativi a quel top utente
+```
+
+```{r}
+
+retweets_classici <- dataset %>%
+  filter(is_quote_status == "0" & is_retweet=="1") %>%
+  select(userid, username, tweetid, original_tweet_id, original_tweet_userid, original_tweet_username, score) %>%
+  head(1)
+
+# Controlliamo se lo score di original_tweet_id corrisponde a quello di tweetid
+# Creiamo un sotto-dataset con gli original_tweet_id e i loro score
+original_scores <- dataset %>%
+  filter(tweetid %in% retweets_classici$original_tweet_id) %>%
+  select(tweetid, score)
+
+```
+
+```{r}
+# costruisco la rete di retweet per ciascun utente
+graphs <- lapply(sub_datasets, function(edges) {
+  graph <- graph_from_data_frame(edges, directed = TRUE)
+  return(graph)
+})
+
+# rinomino i grafi per identificare il rispettivo top utente
+names(graphs) <- names(sub_datasets)
+# ora in ogni elemento della lista graphs ci sono i grafi relativi a quel top utente
+```
+
+Calcolo delle Metriche di Rete
+
+Ad esempio, calcoliamo alcune metriche chiave:
+
+-   **In-degree**: Numero di retweet ricevuti da ciascun nodo.
+
+-   **Out-degree**: Numero di retweet effettuati da ciascun nodo.
+
+-   **Sentiment medio**: Sentiment medio associato ai retweet.
+
+```{r}
+# # Funzione per calcolare le metriche
+# graph_metriche <- function(graph, edges) {
+#   V(graph)$in_degree <- degree(graph, mode = "in")
+#   V(graph)$out_degree <- degree(graph, mode = "out")
+#   
+#   # calcolo del Sentiment medio per ciascun nodo
+#   sentiment_avg <- edges %>%
+#     group_by(to) %>%
+#     summarise(sentiment_avg = mean(as.numeric(sentiment))) %>%
+#     as.data.frame()
+#   
+#   # unisco il sentiment ai nodi
+#   V(graph)$sentiment_avg <- sentiment_avg$sentiment_avg[match(V(graph)$name, sentiment_avg$to)]
+#   
+#   return(graph)
+# }
+# 
+# graphs <- mapply(graph_metriche, graphs, sub_datasets, SIMPLIFY = FALSE)
+
+```
+
+visualizziamo ad esempio il primo grafo:
+
+```{r}
+edges23 <- sub_datasets[[23]]
+graph23 <- graph_from_data_frame(d = edges23, directed = T)
+
+# # Esplorazione del grafo
+# print(graph1)
+# summary(graph1)
+
+# aggiungiamo il sentiment associato
+E(graph23)$sentiment <- edges23$sentiment
+
+# # calcolo grado entrante e uscente
+# # Grado entrante e uscente
+# V(graph1)$in_degree <- degree(graph1, mode = "in")
+# V(graph1)$out_degree <- degree(graph1, mode = "out")
+
+# Calcolo del grado entrante
+in_degree <- degree(graph23, mode = "in")
+out_degree <- degree(graph23, mode = "out")
+
+# # Visualizzazione della distribuzione
+# ggplot(data.frame(out_degree), aes(x = out_degree)) +
+#   geom_histogram(binwidth = 1, fill = "blue", alpha = 0.7, color = "black") +
+#   scale_x_continuous(limits = c(0, quantile(out_degree, 0.95))) + # Zoom sul 95° percentile
+#   theme_minimal() +
+#   labs(title = "Distribuzione del grado uscente", x = "Grado uscente", y = "Conteggio")
+# 
+# ggplot(data.frame(out_degree), aes(x=out_degree)) +
+#   geom_histogram()
+
+
+# Filtraggio dei nodi in base al grado uscente
+graph_filtered <- delete.vertices(graph23, V(graph23)[degree(graph23, mode = "out") > 1])
+
+# Normalizzare la dimensione dei vertici in base al grado uscente
+max_degree <- max(out_degree) # Trova il grado massimo
+min_degree <- min(out_degree) # Trova il grado minimo
+
+# Normalizzazione tra 1 e 10 (puoi modificare l'intervallo)
+vertex_size_normalized <- 1 + (out_degree - min_degree) / (max_degree - min_degree) * 9
+
+# Visualizzazione del grafo con la nuova dimensione dei nodi
+plot(
+  graph23,
+  vertex.size = vertex_size_normalized,  # Usare la dimensione normalizzata
+  vertex.color = "lightblue",
+  edge.color = ifelse(E(graph23)$sentiment == "pos", "green", 
+                      ifelse(E(graph23)$sentiment == "neg", "red", "gray")),
+  edge.arrow.size = 0.5,
+  vertex.label = NA,  # Rimuove i nomi dei vertici
+  main = "Rete di Retweet (Filtrata)"
+)
+```

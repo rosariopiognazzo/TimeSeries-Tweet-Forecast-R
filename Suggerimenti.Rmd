@@ -1,0 +1,263 @@
+---
+title: "Suggerimenti"
+author: "Rosario Pio Gnazzo"
+date: "2025-01-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(tibble)
+```
+
+Per quanto riguarda l'analisi generale del dataset, cercando un modo intelligente per identificare gli utenti influenti, ho estratto questo dataset dove ogni riga è un **utente,** mentre ogni colonna è una informazione globale per quel determinato utente. Ad esempio, utente **X** ha fatto 5 tweet nei 7 giorni di cui noi teniamo i dati, dati questi 5 tweet ho estratto informazioni come: numero di retweet, risposte, citazioni totali ricevuti, andamento del numero di following, followers ecc.
+
+Il codice per generare questo nuovo dataset è questo:\
+
+```{r}
+#carica il dataset
+
+dataset <- dataset %>%
+  mutate(userid = as.character(userid),
+         username = as.character(username),
+         acctdesc = as.character(acctdesc),
+         location = as.character(location),
+         following = as.numeric(following),
+         followers = as.numeric(followers),
+         totaltweets = as.numeric(totaltweets),
+         tweetid = as.character(tweetid),
+         retweetcount = as.numeric(retweetcount),
+         favorite_count = as.numeric(favorite_count),
+         text = as.character(text),
+         language = as.character(language),
+         favorite_count = as.numeric(favorite_count),
+         
+         is_retweet = as.factor(is_retweet),
+         original_tweet_id = format(as.numeric(original_tweet_id), 
+                                    scientific = FALSE),
+         original_tweet_userid = format(as.numeric(original_tweet_userid), 
+                                    scientific = FALSE),
+         original_tweet_username = as.character(original_tweet_username),
+         
+         in_reply_to_status_id = format(as.numeric(in_reply_to_status_id), 
+                                    scientific = FALSE),
+         in_reply_to_user_id = format(as.numeric(in_reply_to_user_id), 
+                                    scientific = FALSE),
+         in_reply_to_screen_name = as.character(in_reply_to_screen_name),
+           
+         is_quote_status = as.factor(is_quote_status),
+         quoted_status_id = format(as.numeric(quoted_status_id), 
+                                    scientific = FALSE),
+         quoted_status_userid = format(as.numeric(quoted_status_userid), 
+                                    scientific = FALSE),
+         quoted_status_username = as.character(quoted_status_username),
+         
+         sentiment = as.factor(sentiment),
+         score = as.numeric(score)
+         )
+
+# Partizionamento dei tweet per le varie tipologie di tweet
+dfPartizionati <- dataset %>%
+  mutate(
+    Tipo_Tweet = case_when(
+      # Retweet
+      is_retweet == TRUE ~ "Retweet",
+      # Risposte
+      in_reply_to_status_id != "                  0" & is_retweet == FALSE ~ "Risposta",
+      # Citazioni
+      is_quote_status == TRUE & is_retweet == FALSE & in_reply_to_status_id == "                  0" ~ "Citazione",
+      # Tweet Normali
+      TRUE ~ "Normale"
+    )
+  )
+
+# Dataset globale per utente
+#
+# Aggregazione per utente
+dfUtenti <- dfPartizionati %>%
+  group_by(userid, username) %>%
+  summarise(
+    # Conteggio tweet per categoria
+    Totale_Tweet = n(),
+    Totale_Retweet = sum(Tipo_Tweet == "Retweet"),
+    Totale_Risposte = sum(Tipo_Tweet == "Risposta"),
+    Totale_Citazioni = sum(Tipo_Tweet == "Citazione"),
+    Totale_Normali = sum(Tipo_Tweet == "Normale"),
+    
+    # Andamenti temporali
+    Following_Min = min(following, na.rm = TRUE),
+    Following_Max = max(following, na.rm = TRUE),
+    Followers_Min = min(followers, na.rm = TRUE),
+    Followers_Max = max(followers, na.rm = TRUE),
+    Totaltweets_Min = min(totaltweets, na.rm = TRUE),
+    Totaltweets_Max = max(totaltweets, na.rm = TRUE),
+    
+    # Sentiment
+    Sentiment_Pos = mean(score[sentiment == "pos"], na.rm = TRUE),
+    Sentiment_Neu = mean(score[sentiment == "neu"], na.rm = TRUE),
+    Sentiment_Neg = mean(score[sentiment == "neg"], na.rm = TRUE),
+    
+    # Intervallo temporale dei dati
+    Data_Inizio = min(tweetcreatedts, na.rm = TRUE),
+    Data_Fine = max(tweetcreatedts, na.rm = TRUE),
+    
+    # Interazioni calcolate dai tipi di tweet
+    Totale_Interazioni = Totale_Risposte + Totale_Citazioni,
+    
+    # Coinvolgimento
+    Media_Retweet = mean(retweetcount, na.rm = TRUE),
+    Media_Like = mean(favorite_count, na.rm = TRUE),
+    Totale_Retweet = sum(retweetcount, na.rm = TRUE),
+    Totale_Like = sum(favorite_count, na.rm = TRUE),
+    
+    # Rapporto attività/account
+    Giorni_Attivi = as.numeric(difftime(max(tweetcreatedts, na.rm = TRUE), min(tweetcreatedts, na.rm = TRUE), units = "days")),
+    Tweet_Giornalieri_Medi = Totale_Tweet / Giorni_Attivi,
+    Rapporto_Follower_Following = mean(followers / following, na.rm = TRUE),
+    
+    # Distribuzione temporale delle attività
+    Orario_Preferito = names(sort(table(tweetcreatedts), decreasing = TRUE)[1])
+  ) %>%
+  ungroup()
+
+# Calcolo delle metriche di attività e influenza e classificazione
+dfUtenti <- dfUtenti %>%
+  mutate(
+    # Metriche di Attività
+    Interazioni_Totali = Totale_Retweet + Totale_Risposte + Totale_Citazioni,
+    Coerenza_Temporale = Giorni_Attivi / Totale_Tweet,
+    
+    # Metriche di Influenza
+    Engagement_Totale = Totale_Retweet + Totale_Like,
+    Engagement_Relativo = Engagement_Totale / Followers_Max,
+    Media_Retweet_Per_Tweet = Totale_Retweet / Totale_Tweet,
+    Media_Like_Per_Tweet = Totale_Like / Totale_Tweet,
+    
+    # Classificazione per Attività
+    Classe_Attivita = case_when(
+      Totale_Tweet >= quantile(Totale_Tweet, 0.75) ~ "Alta",
+      Totale_Tweet >= quantile(Totale_Tweet, 0.50) ~ "Moderata",
+      TRUE ~ "Bassa"
+    ),
+    
+    # Classificazione per Influenza
+    Classe_Influenza = case_when(
+      Engagement_Relativo >= quantile(Engagement_Relativo, 0.75, na.rm = TRUE) ~ "Alta",
+      Engagement_Relativo >= quantile(Engagement_Relativo, 0.50, na.rm = TRUE) ~ "Moderata",
+      TRUE ~ "Bassa"
+    )
+  )
+```
+
+Controlla questo dataset, non tutte le informazioni (colonne) magari sono utilissime oppure potrebbero avere degli errori per come sono calcolate. Dopo averlo controllato, fai delle analisi su questo dataset seguendo quello che hai iniziato a fare sul dataset normale. Così in questa prima parte abbiamo sia l'analisi dal **punto di vista dei tweet**, **sia dal punto di vista degli utenti** e stiamo apposto.
+
+Idee di analisi da fare sul dataset (Ispirate da chat), non vanno fatte tutte, magari scegli solo quelle migliori e più utili.
+
+### **1. Distribuzioni di Base**
+
+-   **Distribuzione dei Tweet per Tipo**:
+
+    -   Grafico a barre: distribuzione di `Totale_Retweet`, `Totale_Risposte`, `Totale_Citazioni`, `Totale_Normali`.
+
+    -   Boxplot per confrontare le medie tra le categorie di tweet.
+
+-   **Distribuzione delle Metriche di Engagement**:
+
+    -   Istogramma di `Totale_Like` e `Totale_Retweet`.
+
+    -   Boxplot di `Media_Like_Per_Tweet` e `Media_Retweet_Per_Tweet`.
+
+-   **Distribuzione dei Followers e Following**:
+
+    -   Istogramma e boxplot di `Followers_Max` e `Following_Max`.
+
+    -   Scatter plot per il rapporto `Rapporto_Follower_Following`.
+
+### **2. Analisi Temporali**
+
+-   **Evoluzione dell'Attività degli Utenti**:
+
+    -   Line plot di `Totaltweets_Max` nel tempo.
+
+    -   Heatmap della distribuzione dei tweet per orario (`Orario_Preferito`) o giorno della settimana.
+
+-   **Durata dell'Attività**:
+
+    -   Istogramma di `Giorni_Attivi` per vedere quanto gli utenti sono attivi nel tempo.
+
+    -   Boxplot per confrontare `Giorni_Attivi` tra le classi di attività.
+
+### **3. Analisi di Coinvolgimento**
+
+-   **Relazione tra Engagement e Follower**:
+
+    -   Scatter plot di `Engagement_Totale` vs. `Followers_Max`.
+
+    -   Scatter plot di `Engagement_Relativo` vs. `Followers_Max` con un fit lineare.
+
+-   **Engagement Relativo tra le Classi di Attività**:
+
+    -   Boxplot di `Engagement_Relativo` per `Classe_Attivita`.
+
+-   **Engagement Medio per Tipo di Utente**:
+
+    -   Barplot delle medie di `Media_Like_Per_Tweet` e `Media_Retweet_Per_Tweet` per `Classe_Influenza`.
+
+### **4. Classificazione degli Utenti**
+
+-   **Composizione delle Classi**:
+
+    -   Grafico a torta o barre per la distribuzione delle `Classe_Attivita` e `Classe_Influenza`.
+
+    -   Heatmap incrociata (tabella di contingenza) tra `Classe_Attivita` e `Classe_Influenza`.
+
+### **5. Analisi di Sentiment**
+
+-   **Sentiment Medio per Utente**:
+
+    -   Boxplot di `Sentiment_Pos`, `Sentiment_Neu`, e `Sentiment_Neg` per le diverse classi.
+
+    -   Heatmap dell'intensità del sentiment (positivi vs. negativi) nel tempo.
+
+-   **Relazione tra Sentiment e Coinvolgimento**:
+
+    -   Scatter plot di `Sentiment_Pos` vs. `Engagement_Totale`.
+
+    -   Scatter plot di `Sentiment_Neg` vs. `Engagement_Totale`.
+
+### **6. Analisi delle Interazioni**
+
+-   **Diversità delle Interazioni**:
+
+    -   Barplot di `Diversita_Interazioni` per le diverse classi di influenza.
+
+    -   Scatter plot di `Diversita_Interazioni` vs. `Totale_Interazioni`.
+
+-   **Analisi della Rete Sociale**:
+
+    -   Grafico network (opzionale): visualizzazione degli utenti con alti valori di `Diversita_Interazioni`.
+
+### **7. Confronto tra Classi**
+
+-   **Confronto delle Metriche Chiave**:
+
+    -   Boxplot o violin plot per `Totale_Tweet`, `Engagement_Totale`, `Followers_Max`, ecc., suddivisi per `Classe_Attivita` e `Classe_Influenza`.
+
+-   **Attività Relativa e Tweet Giornalieri**:
+
+    -   Scatter plot di `Tweet_Giornalieri_Medi` vs. `Classe_Attivita`.
+
+### **8. Analisi Avanzate (se applicabile)**
+
+-   **Correlazioni**:
+
+    -   Matrice di correlazione per le variabili quantitative, come `Totale_Tweet`, `Engagement_Totale`, `Followers_Max`, ecc.
+
+    -   Heatmap delle correlazioni.
+
+-   **Clusterizzazione degli Utenti**:
+
+    -   Algoritmi di clustering (es. K-means) per raggruppare utenti con caratteristiche simili (es. engagement, attività, followers).
