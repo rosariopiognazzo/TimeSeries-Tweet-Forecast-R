@@ -1,0 +1,125 @@
+---
+title: "Progetto_SAD"
+author: "Rosario Pio Gnazzo"
+date: "2024-11-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(jsonlite)#per convertire hashtags
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(corrplot)
+library(purrr)
+library(dygraphs)
+```
+
+### Data Wrangling
+
+```{r}
+#leggiamo il dataset
+Sentiment_fr_tweet_2023 <- read_csv2("Sentiment_fr_tweet_2023.csv")
+
+#Non si opera mai sul dataset originale
+dataset <- Sentiment_fr_tweet_2023
+
+str(dataset)
+summary(dataset)
+#si nota che il formato degli elementi non è corretta per la maggior parte
+
+```
+
+```{r}
+#aggiustiamo il formato delle variabili
+dataset <- dataset %>%
+  mutate(
+    score = as.numeric(score),
+    is_retweet = as.factor(is_retweet),
+    is_quote_status = as.factor(is_quote_status),
+    sentiment = as.factor(sentiment),
+  )
+# sostituisco le virgolette singole con doppie virgolette
+dataset$hashtags <- gsub("'", '"', dataset$hashtags)
+# sostituisco stringhe vuote con "[]" per evitare errori di parsing
+dataset$hashtags[dataset$hashtags == ""] <- "[]"
+# convertirto ogni elemento in JSON per poter accederci in maniera più immediata
+dataset$hashtags <- lapply(dataset$hashtags, fromJSON)
+
+write_csv2(dataset, "dataset.csv")#salvato nuovo dataset
+```
+
+```{r}
+dataset %>%
+  select(where(is.numeric), -userid, -tweetid)%>%
+  summarise(across(everything(), list(
+    media = ~ mean(., na.rm = TRUE),
+    mediana = ~ median(., na.rm = TRUE),
+    varianza = ~ var(., na.rm = TRUE),
+    sd = ~ sd(., na.rm = TRUE),
+    minimo = min,
+    massimo = max,
+    quantile_25 = ~ quantile(., 0.25, na.rm = TRUE),
+    quantile_75 = ~ quantile(., 0.75, na.rm = TRUE)
+  ))) %>%
+  pivot_longer(cols = everything(), 
+               names_to = c("variabile", "metrica"),
+               names_sep = "_") %>%
+  pivot_wider(names_from = metrica, values_from = value, values_fn = list(value = ~ .[1]))
+
+## controllare i valori NAs ##
+```
+
+```{r}
+
+# Applica la standardizzazione a tutte le variabili numeriche
+dataset_scale <- dataset %>%
+  select(where(is.numeric), -userid, -tweetid) %>%
+  mutate(followingln = scale(following),
+         followerln = scale(followers),
+         totaltweetsln = scale(totaltweets),
+         retweetcountln = scale(retweetcount),
+         favorite_countln = scale(favorite_count),
+         scoreln = scale(score)) %>%
+  select(followingln, followerln, totaltweetsln, retweetcountln, favorite_countln, scoreln)
+
+# Ottieni una lista di variabili numeriche
+numeric_vars <- names(dataset_scale)
+
+# Crea un istogramma per ogni variabile numerica
+plots_istogrammi <- map(numeric_vars, function(var) {
+    ggplot(dataset_scale, aes_string(x = var)) +
+        geom_histogram(bins = 50, fill = "skyblue", color = "black") +
+        labs(title = paste("Istogramma di", var), x = var, y = "Frequenza") +
+        ylim(0, ) +  # Sostituisci con i limiti desiderati
+        theme_minimal()
+})
+
+# Visualizza i grafici uno per uno
+for (plot in plots_istogrammi) {
+    print(plot)
+}
+
+
+# Crea un boxplot per ogni variabile numerica
+plots_boxplot <- map(numeric_vars, function(var) {
+    ggplot(dataset, aes_string(y = var)) +
+        geom_boxplot(fill = "skyblue", color = "black") +
+        labs(title = paste("boxplot di", var), x = var, y = "valore") +
+        theme_minimal()
+})
+
+# Visualizza i grafici uno per uno
+for (plot in plots_boxplot) {
+    print(plot)
+}
+
+```
+
+### Time series
+
+```{r}
+
+```
