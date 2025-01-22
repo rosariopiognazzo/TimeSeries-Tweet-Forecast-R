@@ -11,6 +11,10 @@ library(readr)
 library(dplyr)
 library(tidyr)
 library(tibble)
+library(ggplot2)
+library(lubridate)
+library(reshape2)
+library(scales)
 ```
 
 Per quanto riguarda l'analisi generale del dataset, cercando un modo intelligente per identificare gli utenti influenti, ho estratto questo dataset dove ogni riga è un **utente,** mentre ogni colonna è una informazione globale per quel determinato utente. Ad esempio, utente **X** ha fatto 5 tweet nei 7 giorni di cui noi teniamo i dati, dati questi 5 tweet ho estratto informazioni come: numero di retweet, risposte, citazioni totali ricevuti, andamento del numero di following, followers ecc.
@@ -19,7 +23,9 @@ Il codice per generare questo nuovo dataset è questo:\
 
 ```{r}
 #carica il dataset
+sentiment <- read_csv2("C:/Users/Utente/Documenti/Sentiment_fr_tweet_2023.csv")
 
+dataset <- sentiment
 dataset <- dataset %>%
   mutate(userid = as.character(userid),
          username = as.character(username),
@@ -59,7 +65,7 @@ dataset <- dataset %>%
          score = as.numeric(score)
          )
 
-# Partizionamento dei tweet per le varie tipologie di tweet
+# Partizionamento varie tipologie di tweet
 dfPartizionati <- dataset %>%
   mutate(
     Tipo_Tweet = case_when(
@@ -158,75 +164,328 @@ Idee di analisi da fare sul dataset (Ispirate da chat), non vanno fatte tutte, m
 
 ### **1. Distribuzioni di Base**
 
--   **Distribuzione dei Tweet per Tipo**:
+   **Distribuzione dei Tweet per Tipo**:
 
     -   Grafico a barre: distribuzione di `Totale_Retweet`, `Totale_Risposte`, `Totale_Citazioni`, `Totale_Normali`.
+```{r}
+    dfTipoTweet <- dfPartizionati %>%
+  group_by(Tipo_Tweet) %>%
+  summarise(Totale = n())
 
-    -   Boxplot per confrontare le medie tra le categorie di tweet.
+ggplot(dfTipoTweet, aes(x = Tipo_Tweet, y = Totale, fill = Tipo_Tweet)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Distribuzione dei Tweet per Tipo", x = "Tipo di Tweet", y = "Totale") +
+  theme_minimal()
 
--   **Distribuzione delle Metriche di Engagement**:
 
-    -   Istogramma di `Totale_Like` e `Totale_Retweet`.
+    #Boxplot per confrontare le medie tra le categorie di tweet.
+ggplot(dfPartizionati, aes(x = Tipo_Tweet, y = retweetcount, fill = Tipo_Tweet)) +
+  geom_boxplot() +
+  labs(title = "Distribuzione dei Retweet per Tipo di Tweet", x = "Tipo di Tweet", y = "Numero di Retweet") +
+  theme_minimal()
 
-    -   Boxplot di `Media_Like_Per_Tweet` e `Media_Retweet_Per_Tweet`.
 
--   **Distribuzione dei Followers e Following**:
 
-    -   Istogramma e boxplot di `Followers_Max` e `Following_Max`.
+  # **Distribuzione delle Metriche di Engagement**:
 
-    -   Scatter plot per il rapporto `Rapporto_Follower_Following`.
+    #   Istogramma di `Totale_Like` e `Totale_Retweet`.
+    ggplot(dfUtenti, aes(x = Totale_Like)) +
+  geom_histogram(binwidth = 50, fill = "blue", color = "white") +
+  labs(title = "Distribuzione dei Like Totali", x = "Totale Like", y = "Frequenza") +
+  theme_minimal()
 
+#Istogramma di `retweet``.
+ggplot(dfUtenti, aes(x = Totale_Retweet)) +
+  geom_histogram(binwidth = 10, fill = "red", color = "white") +
+  labs(title = "Distribuzione dei Retweet Totali", x = "Totale Retweet", y = "Frequenza") +
+  theme_minimal()
+
+
+     # Boxplot di `Media_Like_Per_Tweet` e `Media_Retweet_Per_Tweet`.
+    
+ggplot(dfUtenti, aes(x = Classe_Influenza, y = Media_Like_Per_Tweet, fill = Classe_Influenza)) +
+  geom_boxplot() +
+  labs(title = "Media Like per Tweet per Classe di Influenza", x = "Classe di Influenza", y = "Media Like per Tweet") +
+  theme_minimal()
+
+
+  # **Distribuzione dei Followers e Following**:
+
+   #  Istogramma e boxplot di `Followers_Max` e `Following_Max`.
+ggplot(dfUtenti, aes(x = Followers_Max)) +
+  geom_histogram(binwidth = 100, fill = "green", color = "white") +
+  labs(title = "Distribuzione del Massimo Numero di Followers", x = "Massimo Followers", y = "Frequenza") +
+  theme_minimal()
+
+
+    #-   Scatter plot per il rapporto `Rapporto_Follower_Following`.
+ggplot(dfUtenti, aes(x = Following_Max, y = Followers_Max)) +
+  geom_point(color = "purple") +
+  labs(title = "Rapporto Followers-Following", x = "Massimo Following", y = "Massimo Followers") +
+  theme_minimal()
+```
+
+```{r}
 ### **2. Analisi Temporali**
 
--   **Evoluzione dell'Attività degli Utenti**:
+ # **Evoluzione dell'Attività degli Utenti**
+# Line plot di Totaltweets_Max nel tempo
+ggplot(dfUtenti, aes(x = Data_Fine, y = Totaltweets_Max)) +
+  geom_line(color = "blue", size = 1) +
+  labs(
+    title = "Evoluzione dell'Attività degli Utenti nel Tempo",
+    x = "Data Fine",
+    y = "Totale Tweet Massimi"
+  ) +
+  theme_minimal()
 
-    -   Line plot di `Totaltweets_Max` nel tempo.
+# Heatmap della distribuzione dei tweet per orario o giorno della settimana
+# Prima prepariamo i dati per la heatmap
+dfHeatmap <- dataset %>%
+  mutate(
+    Giorno_Settimana = wday(tweetcreatedts, label = TRUE),
+    Ora = hour(tweetcreatedts)
+  ) %>%
+  group_by(Giorno_Settimana, Ora) %>%
+  summarise(Totale_Tweet = n(), .groups = "drop")
 
-    -   Heatmap della distribuzione dei tweet per orario (`Orario_Preferito`) o giorno della settimana.
+# Heatmap
+ggplot(dfHeatmap, aes(x = Ora, y = Giorno_Settimana, fill = Totale_Tweet)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(
+    title = "Distribuzione dei Tweet per Orario e Giorno della Settimana",
+    x = "Ora del Giorno",
+    y = "Giorno della Settimana",
+    fill = "Totale Tweet"
+  ) +
+  theme_minimal()
 
--   **Durata dell'Attività**:
+# **Durata dell'Attività**
+# Istogramma di Giorni_Attivi
+ggplot(dfUtenti, aes(x = Giorni_Attivi)) +
+  geom_histogram(bins = 30, fill = "darkgreen", color = "white", alpha = 0.8) +
+  labs(
+    title = "Distribuzione della Durata dell'Attività degli Utenti",
+    x = "Giorni Attivi",
+    y = "Conteggio Utenti"
+  ) +
+  theme_minimal()
 
-    -   Istogramma di `Giorni_Attivi` per vedere quanto gli utenti sono attivi nel tempo.
+# Boxplot per confrontare Giorni_Attivi tra le classi di attività
+ggplot(dfUtenti, aes(x = Classe_Attivita, y = Giorni_Attivi, fill = Classe_Attivita)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Confronto della Durata dell'Attività tra Classi di Attività",
+    x = "Classe di Attività",
+    y = "Giorni Attivi"
+  ) +
+  theme_minimal()
+  
+```
 
-    -   Boxplot per confrontare `Giorni_Attivi` tra le classi di attività.
 
+```{r}
 ### **3. Analisi di Coinvolgimento**
+# **Relazione tra Engagement e Follower**
+# Scatter plot di Engagement_Totale vs. Followers_Max
+ggplot(dfUtenti, aes(x = Followers_Max, y = Engagement_Totale)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  labs(
+    title = "Relazione tra Engagement Totale e Numero di Follower",
+    x = "Numero Massimo di Follower",
+    y = "Engagement Totale"
+  ) +
+  theme_minimal()
 
--   **Relazione tra Engagement e Follower**:
+# Scatter plot di Engagement_Relativo vs. Followers_Max con fit lineare
+ggplot(dfUtenti, aes(x = Followers_Max, y = Engagement_Relativo)) +
+  geom_point(color = "darkorange", alpha = 0.6) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(
+    title = "Relazione tra Engagement Relativo e Numero di Follower",
+    x = "Numero Massimo di Follower",
+    y = "Engagement Relativo"
+  ) +
+  theme_minimal()
 
-    -   Scatter plot di `Engagement_Totale` vs. `Followers_Max`.
+# **Engagement Relativo tra le Classi di Attività**
+# Boxplot di Engagement_Relativo per Classe_Attivita
+ggplot(dfUtenti, aes(x = Classe_Attivita, y = Engagement_Relativo, fill = Classe_Attivita)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_brewer(palette = "Pastel1") +
+  labs(
+    title = "Engagement Relativo tra le Classi di Attività",
+    x = "Classe di Attività",
+    y = "Engagement Relativo"
+  ) +
+  theme_minimal()
 
-    -   Scatter plot di `Engagement_Relativo` vs. `Followers_Max` con un fit lineare.
+# **Engagement Medio per Tipo di Utente**
+# Preparazione dei dati per il Barplot
+dfEngagementMedio <- dfUtenti %>%
+  group_by(Classe_Influenza) %>%
+  summarise(
+    Media_Like_Per_Tweet = mean(Media_Like_Per_Tweet, na.rm = TRUE),
+    Media_Retweet_Per_Tweet = mean(Media_Retweet_Per_Tweet, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  melt(id.vars = "Classe_Influenza", variable.name = "Tipo_Engagement", value.name = "Media_Engagement")
 
--   **Engagement Relativo tra le Classi di Attività**:
+# Barplot delle medie di Media_Like_Per_Tweet e Media_Retweet_Per_Tweet per Classe_Influenza
+ggplot(dfEngagementMedio, aes(x = Classe_Influenza, y = Media_Engagement, fill = Tipo_Engagement)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Engagement Medio per Tipo di Utente",
+    x = "Classe di Influenza",
+    y = "Media Engagement",
+    fill = "Tipo di Engagement"
+  ) +
+  theme_minimal()
+```
 
-    -   Boxplot di `Engagement_Relativo` per `Classe_Attivita`.
 
--   **Engagement Medio per Tipo di Utente**:
-
-    -   Barplot delle medie di `Media_Like_Per_Tweet` e `Media_Retweet_Per_Tweet` per `Classe_Influenza`.
-
+```{r}
 ### **4. Classificazione degli Utenti**
 
--   **Composizione delle Classi**:
+# **Grafico a torta o barre per la distribuzione delle Classi**
+# Calcolo della distribuzione delle Classi di Attività
+dfClasseAttivita <- dfUtenti %>%
+  count(Classe_Attivita) %>%
+  mutate(Percentuale = n / sum(n) * 100)
 
-    -   Grafico a torta o barre per la distribuzione delle `Classe_Attivita` e `Classe_Influenza`.
+# Grafico a torta per Classe_Attivita
+ggplot(dfClasseAttivita, aes(x = "", y = Percentuale, fill = Classe_Attivita)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar("y", start = 0) +
+  scale_fill_brewer(palette = "Set3") +
+  labs(
+    title = "Distribuzione delle Classi di Attività",
+    x = NULL, 
+    y = NULL,
+    fill = "Classe di Attività"
+  ) +
+  theme_minimal()
 
-    -   Heatmap incrociata (tabella di contingenza) tra `Classe_Attivita` e `Classe_Influenza`.
+# Calcolo della distribuzione delle Classi di Influenza
+dfClasseInfluenza <- dfUtenti %>%
+  count(Classe_Influenza) %>%
+  mutate(Percentuale = n / sum(n) * 100)
 
+# Grafico a barre per Classe_Influenza
+ggplot(dfClasseInfluenza, aes(x = Classe_Influenza, y = Percentuale, fill = Classe_Influenza)) +
+  geom_bar(stat = "identity", alpha = 0.8) +
+  scale_fill_brewer(palette = "Pastel2") +
+  labs(
+    title = "Distribuzione delle Classi di Influenza",
+    x = "Classe di Influenza",
+    y = "Percentuale",
+    fill = "Classe di Influenza"
+  ) +
+  theme_minimal()
+
+# **Heatmap incrociata tra Classe_Attivita e Classe_Influenza**
+# Tabella di contingenza
+dfContingenza <- table(dfUtenti$Classe_Attivita, dfUtenti$Classe_Influenza)
+
+# Conversione in formato long per ggplot
+dfContingenzaLong <- as.data.frame(as.table(dfContingenza))
+
+# Heatmap
+ggplot(dfContingenzaLong, aes(Var1, Var2, fill = Freq)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(
+    title = "Heatmap tra Classi di Attività e Influenza",
+    x = "Classe di Attività",
+    y = "Classe di Influenza",
+    fill = "Frequenza"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
 ### **5. Analisi di Sentiment**
 
--   **Sentiment Medio per Utente**:
+# **Sentiment Medio per Utente**
 
-    -   Boxplot di `Sentiment_Pos`, `Sentiment_Neu`, e `Sentiment_Neg` per le diverse classi.
+# Boxplot di Sentiment_Pos, Sentiment_Neu, e Sentiment_Neg per le Classi di Influenza
+dfUtenti <- dfUtenti %>%
+  mutate(Data_Inizio = as.Date(Data_Inizio, format = "%Y-%m-%d"))
 
-    -   Heatmap dell'intensità del sentiment (positivi vs. negativi) nel tempo.
+dfSentiment <- dfUtenti %>%
+  select(Classe_Influenza, Sentiment_Pos, Sentiment_Neu, Sentiment_Neg) %>%
+  pivot_longer(
+    cols = starts_with("Sentiment"),
+    names_to = "Tipo_Sentiment",
+    values_to = "Valore_Sentiment"
+  )
 
--   **Relazione tra Sentiment e Coinvolgimento**:
+ggplot(dfSentiment, aes(x = Classe_Influenza, y = Valore_Sentiment, fill = Tipo_Sentiment)) +
+  geom_boxplot(alpha = 0.7, outlier.color = "red", outlier.shape = 16) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Sentiment Medio per Classe di Influenza",
+    x = "Classe di Influenza",
+    y = "Valore Sentiment",
+    fill = "Tipo di Sentiment"
+  ) +
+  theme_minimal()
 
-    -   Scatter plot di `Sentiment_Pos` vs. `Engagement_Totale`.
+# Heatmap dell'intensità del sentiment (positivi vs. negativi) nel tempo
+dfSentimentTime <- dfUtenti %>%
+  group_by(Data_Inizio) %>%
+  summarise(
+    Sentiment_Pos_Medio = mean(Sentiment_Pos, na.rm = TRUE),
+    Sentiment_Neg_Medio = mean(Sentiment_Neg, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = c(Sentiment_Pos_Medio, Sentiment_Neg_Medio),
+    names_to = "Tipo_Sentiment",
+    values_to = "Intensita_Sentiment"
+  )
 
-    -   Scatter plot di `Sentiment_Neg` vs. `Engagement_Totale`.
+ggplot(dfSentimentTime, aes(x = Data_Inizio, y = Tipo_Sentiment, fill = Intensita_Sentiment)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(
+    title = "Heatmap dell'Intensità del Sentiment nel Tempo",
+    x = "Data",
+    y = "Tipo di Sentiment",
+    fill = "Intensità"
+  ) +
+  theme_minimal() +
+  scale_x_date(labels = date_format("%b %Y"))
+
+# **Relazione tra Sentiment e Coinvolgimento**
+
+# Scatter plot di Sentiment_Pos vs. Engagement_Totale
+ggplot(dfUtenti, aes(x = Sentiment_Pos, y = Engagement_Totale)) +
+  geom_point(alpha = 0.7, color = "darkgreen") +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(
+    title = "Relazione tra Sentiment Positivo e Coinvolgimento Totale",
+    x = "Sentiment Positivo Medio",
+    y = "Engagement Totale"
+  ) +
+  theme_minimal()
+
+# Scatter plot di Sentiment_Neg vs. Engagement_Totale
+ggplot(dfUtenti, aes(x = Sentiment_Neg, y = Engagement_Totale)) +
+  geom_point(alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  labs(
+    title = "Relazione tra Sentiment Negativo e Coinvolgimento Totale",
+    x = "Sentiment Negativo Medio",
+    y = "Engagement Totale"
+  ) +
+  theme_minimal()
+```
+
+
 
 ### **6. Analisi delle Interazioni**
 
