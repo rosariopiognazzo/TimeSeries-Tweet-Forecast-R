@@ -12,6 +12,8 @@ library(nortest)
 #carichiamo il dataset in R
 Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
 Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/Utente/Documenti/Sentiment_fr_tweet_2023.csv")
+
 dataset <- read_csv2("C:/Users/Utente/Documenti/Dataset.csv")
 
 #non si lavora mai sul dataset raw, ma su una copia
@@ -127,6 +129,16 @@ for (col in names(var_numeriche_log)) {
     labs(title = paste("Distribuzione di", col_name),
          x = col_name, y = "Densità") +
     theme_minimal()
+# L'istogramma mostra che la variabile non segue una distribuzione normale, 
+#  ma è fortemente asimmetrica verso sinistra (positiva). 
+#  Questo significa che la maggior parte dei 
+#   valori è concentrata in un range basso di log_favorite_count, mentre 
+#   ci sono pochi valori estremamente alti.
+# #Media e Mediana:
+# #La media è rappresentata dalla linea tratteggiata blu ed è maggiore 
+#   rispetto alla mediana (linea tratteggiata verde). Questo è un segnale 
+#   tipico di distribuzioni con una coda lunga verso destra, dove i valori 
+#   elevati influiscono sulla media.
   
   # Grafico 2: Boxplot
   box_plot <- ggplot(data, aes_string(y = col_name)) +
@@ -134,6 +146,15 @@ for (col in names(var_numeriche_log)) {
     labs(title = paste("Boxplot di", col_name),
          y = col_name) +
     theme_minimal()
+  # Outlier: Dal boxplot si nota la presenza di molti outlier sopra la 
+  # soglia massima (rappresentati dai punti rossi). Questi outlier indicano 
+  # utenti con valori di log_favorite_count molto elevati rispetto alla 
+  # maggior parte degli altri.
+  # I Quartili: La lunghezza della scatola (distanza tra il primo e il 
+  # terzo quartile) evidenzia una forte variabilità nei valori centrali.
+  # Gli outlier possono essere analizzati più in dettaglio per comprendere 
+  # le caratteristiche degli utenti che generano un numero significativamente 
+  # alto di "favorite".
   
   # Test di normalità alternativo: Anderson-Darling
   if (nrow(data) > 5000) {
@@ -158,6 +179,16 @@ for (col in names(var_numeriche_log)) {
     labs(title = paste("QQ-Plot di", col_name),
          x = "Teorico Quantile", y = "Quantile Osservato") +
     theme_minimal()
+  
+  # Il QQ-plot conferma che la variabile non segue una distribuzione normale. 
+  # La maggior parte dei punti si discosta dalla linea rossa, soprattutto 
+  # nelle code.
+  # I valori estremi (coda destra) sono molto lontani dalla linea teorica, 
+  # evidenziando che i dati sono pesantemente influenzati da pochi valori 
+  # molto alti.
+  # Questa conferma è anche coerente con il test di Anderson-Darling che 
+  # abbiamo eseguito, il quale probabilmente ha restituito un p-value < 0.05, 
+  # indicando che i dati non sono normali.
   
   
   # Combinazione dei grafici
@@ -343,10 +374,47 @@ create_comparison_plot <- function(var_name, plot_type, bins=NULL) {
 
 # Esempio di utilizzo: Variabile FOLLOWING
 create_comparison_plot("following", "boxplot")
+# Grafico 1: "Con Outliers"
+# Cosa vediamo:
+#   La variabile following mostra un numero elevato di outlier estremi, rappresentati dai punti oltre i baffi del boxplot.
+# La maggior parte dei dati si trova in un range molto ristretto, vicino alla parte inferiore del grafico. La coda lunga superiore rende difficile distinguere i valori centrali (i.e., la scatola stessa del boxplot).
+# Implicazioni:
+#   I dati contengono molti valori estremi molto grandi, il che potrebbe indicare utenti che seguono un numero eccezionalmente elevato di altre persone. Questi valori estremi influenzano fortemente la visualizzazione e il calcolo di alcune statistiche (e.g., media, deviazione standard).
+# 2. Grafico 2: "Senza Grandi Outliers"
+# Cosa vediamo:
+#   Qui sono stati rimossi gli outlier molto grandi (definiti con un criterio di soglia basato su 3 volte l'IQR - Interquartile Range).
+# La scatola del boxplot è più visibile, e possiamo osservare meglio i valori centrali della distribuzione. Tuttavia, ci sono ancora alcuni outlier (più piccoli), che sono stati inclusi.
+# Implicazioni:
+# Rimuovendo solo gli outlier estremi, possiamo concentrarci sulla distribuzione centrale dei dati. Questo grafico fornisce una rappresentazione più equilibrata, che aiuta ad analizzare la variabilità dei valori che non sono fortemente influenzati dagli estremi.
+# 3. Grafico 3: "Senza Outliers"
+# Cosa vediamo:
+# Qui sono stati rimossi tutti gli outlier (secondo il criterio standard di 1.5 volte l'IQR).
+# La distribuzione risulta molto più compatta, e la variabilità centrale dei dati è più chiara.
+# La maggior parte dei valori si trova in un range relativamente ristretto.
+# Implicazioni:
+#   Questo grafico aiuta a comprendere meglio la parte "normale" della distribuzione dei dati, senza l'influenza degli outlier. È utile per analisi statistiche che richiedono di escludere valori anomali, come il calcolo della media e deviazione standard.
+
 create_comparison_plot("following", "histogram")
 create_comparison_plot("following", "pareto", c(3000, 1800, 500)) # c(bin dataset con outliers, bin dataset senza i grandi, bin dataset senza tutti)
 create_comparison_plot("following", "qqplot")
-
+# Grafico 1: "Con Outliers"
+# Osservazioni:
+#   I punti si discostano significativamente dalla linea diagonale verde (che rappresenta la distribuzione normale).
+# Gli outlier estremi sono evidenti nella coda superiore, mostrando deviazioni notevoli rispetto alla normalità.
+# Interpretazione:
+#   I dati non seguono una distribuzione normale a causa della presenza di valori estremi che distorcono la forma generale.
+# 2. Grafico 2: "Senza Grandi Outliers"
+# Osservazioni:
+#   Dopo aver rimosso gli outlier estremi (ma non tutti), la forma della distribuzione è più vicina alla normalità rispetto al primo grafico.
+# Tuttavia, le code (sia inferiore che superiore) mostrano ancora deviazioni dalla linea teorica.
+# Interpretazione:
+#   Anche senza gli outlier più grandi, i dati non sono perfettamente normali. Ciò potrebbe indicare una distribuzione asimmetrica o con code più lunghe del normale (distribuzione heavy-tailed).
+# 3. Grafico 3: "Senza Outliers"
+# Osservazioni:  Quando tutti gli outlier sono rimossi (criterio standard di 1.5 volte l'IQR), i dati si avvicinano di più alla linea teorica.
+# C'è comunque una leggera deviazione nelle code, ma la distribuzione appare più normale rispetto agli altri casi.
+# Interpretazione:
+# Dopo aver escluso tutti gli outlier, possiamo dire che i dati centrali seguono meglio una distribuzione normale. Tuttavia, non è una perfetta distribuzione normale.
+                                         
 create_comparison_plot("score", "boxplot")
 
 

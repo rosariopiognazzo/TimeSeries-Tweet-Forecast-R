@@ -24,8 +24,6 @@ library(igraph)
 
 Per quanto riguarda l'analisi generale del dataset, cercando un modo intelligente per identificare gli utenti influenti, ho estratto questo dataset dove ogni riga è un **utente,** mentre ogni colonna è una informazione globale per quel determinato utente. Ad esempio, utente **X** ha fatto 5 tweet nei 7 giorni di cui noi teniamo i dati, dati questi 5 tweet ho estratto informazioni come: numero di retweet, risposte, citazioni totali ricevuti, andamento del numero di following, followers ecc.
 
-Il codice per generare questo nuovo dataset è questo:\
-
 ```{r}
 #carica il dataset
 sentiment <- read_csv2("C:/Users/Utente/Documenti/Sentiment_fr_tweet_2023.csv")
@@ -162,14 +160,12 @@ dfUtenti <- dfUtenti %>%
   )
 ```
 
-Controlla questo dataset, non tutte le informazioni (colonne) magari sono utilissime oppure potrebbero avere degli errori per come sono calcolate. Dopo averlo controllato, fai delle analisi su questo dataset seguendo quello che hai iniziato a fare sul dataset normale. Così in questa prima parte abbiamo sia l'analisi dal **punto di vista dei tweet**, **sia dal punto di vista degli utenti** e stiamo apposto.
-
-Idee di analisi da fare sul dataset (Ispirate da chat), non vanno fatte tutte, magari scegli solo quelle migliori e più utili.
 
 ### **1. Distribuzioni di Base**
 
    **Distribuzione dei Tweet per Tipo**
-   
+Motivo: Vogliamo analizzare il numero totale di tweet per ciascun tipo (ad esempio, normali, retweet, citazioni) per capire quale tipo è predominante nella nostra base dati.
+
     -   Grafico a barre: distribuzione di `Totale_Retweet`, `Totale_Risposte`, `Totale_Citazioni`, `Totale_Normali`.
 ```{r}
   dfTipoTweet <- dfPartizionati %>%
@@ -197,6 +193,16 @@ ggplot(dfTipoTweet, aes(x = Tipo_Tweet, y = Totale, fill = Tipo_Tweet)) +
   theme_minimal()
 
 
+
+```
+Il grafico mostra che un particolare tipo di tweet (retweet) è molto più comune degli altri, possiamo concludere che l'attività dell'utenza è orientata principalmente verso quel tipo di interazione.
+
+
+
+Motivo: Gli outliers possono distorcere la comprensione della distribuzione generale dei retweet. Rimuovendo gli outliers, possiamo analizzare meglio la tendenza centrale.
+
+
+```{r}
 # Rimuovi gli outliers dal boxplot
 ggplot(data_no_outliers, aes(x = Tipo_Tweet, y = retweetcount, fill = Tipo_Tweet)) +
   geom_boxplot(outlier.shape = NA) +  # Nasconde i punti degli outliers
@@ -209,6 +215,10 @@ ggplot(data_no_outliers, aes(x = Tipo_Tweet, y = retweetcount, fill = Tipo_Tweet
 
 
 ```
+Il grafico mostra che il numero di retweet è significativamente più alto, possiamo dedurre che quel tipo di contenuto è più condivisibile.
+
+
+Motivo: Analizziamo la distribuzione dei like totali per capire il livello di engagement dei post nella nostra base dati.
 
 ```{r}
   # **Distribuzione delle Metriche di Engagement**:
@@ -239,6 +249,15 @@ ggplot(dfUtenti_filtrato, aes(x = Totale_Like)) +
   geom_histogram(binwidth = 50, fill = "blue", color = "white") +
   labs(title = "Distribuzione dei Like Totali (Senza Outliers)", x = "Totale Like", y = "Frequenza") +
   theme_minimal()
+```
+Se il grafico mostra una distribuzione asimmetrica, potrebbe significare che ci sono pochi utenti con un numero molto alto di like, mentre la maggioranza ha numeri più modesti.
+
+
+Motivo: Vogliamo capire come sono distribuiti i retweet totali nella nostra base dati per valutare il potenziale virale del contenuto.
+
+
+```{r}
+
 
 # Istogramma di `Totale_Retweet`
 ggplot(dfUtenti_filtrato, aes(x = Totale_Retweet)) +
@@ -246,29 +265,17 @@ ggplot(dfUtenti_filtrato, aes(x = Totale_Retweet)) +
   labs(title = "Distribuzione dei Retweet Totali (Senza Outliers)", x = "Totale Retweet", y = "Frequenza") +
   theme_minimal()
 
+```
+Il numero di retweet segue una chiara distribuzione quindi i post hanno una frequenza di retweet generalmente bassa che segue una distribuzione esponenziale/poisson
 
 
-     # Boxplot di `Media_Like_Per_Tweet` e `Media_Retweet_Per_Tweet`.
-    
-# Calcolo dei limiti per Media_Like_Per_Tweet
-Q1_like_per_tweet <- quantile(dfUtenti$Media_Like_Per_Tweet, 0.25, na.rm = TRUE)
-Q3_like_per_tweet <- quantile(dfUtenti$Media_Like_Per_Tweet, 0.75, na.rm = TRUE)
-IQR_like_per_tweet <- Q3_like_per_tweet - Q1_like_per_tweet
-lower_limit_like_per_tweet <- Q1_like_per_tweet - 1.5 * IQR_like_per_tweet
-upper_limit_like_per_tweet <- Q3_like_per_tweet + 1.5 * IQR_like_per_tweet
 
-# Filtrare i dati senza outliers
-dfUtenti_filtrato <- dfUtenti %>%
-  filter(Media_Like_Per_Tweet >= lower_limit_like_per_tweet & Media_Like_Per_Tweet <= upper_limit_like_per_tweet)
 
-# Boxplot senza outliers
-ggplot(dfUtenti_filtrato, aes(x = Classe_Influenza, y = Media_Like_Per_Tweet, fill = Classe_Influenza)) +
-  geom_boxplot() +
-  labs(title = "Media Like per Tweet per Classe di Influenza (Senza Outliers)", 
-       x = "Classe di Influenza", 
-       y = "Media Like per Tweet") +
-  theme_minimal()
 
+
+Motivo: Studiamo la relazione tra il numero massimo di utenti seguiti (following) e il numero massimo di follower per capire eventuali correlazioni.
+
+```{r}
 
 
   # **Distribuzione dei Followers e Following**:
@@ -280,6 +287,14 @@ ggplot(dfUtenti, aes(x = Following_Max, y = Followers_Max)) +
   geom_point(color = "purple") +
   labs(title = "Rapporto Followers-Following", x = "Massimo Following", y = "Massimo Followers") +
   theme_minimal()
+
+```
+Se osserviamo una relazione positiva, significa che gli utenti che seguono molti account tendono anche ad avere più follower, suggerendo una relazione reciproca tra queste metriche.
+
+
+
+Motivo: Vogliamo analizzare come il numero di tweet pubblicati da un utente influisce sul numero di follower massimi che possiede.
+```{r}
 
 
 ggplot(dfUtenti, aes(x = Totale_Tweet, y = Followers_Max)) +
@@ -293,6 +308,14 @@ ggplot(dfUtenti, aes(x = Totale_Tweet, y = Followers_Max)) +
 
 
 ```
+
+
+
+Se il grafico mostra che gli utenti con più tweet tendono ad avere più follower, potrebbe suggerire che l'attività su Twitter è un fattore determinante per aumentare il seguito.
+
+
+
+Motivo: Vogliamo osservare come l'attività massima in termini di tweet degli utenti sia cambiata nel tempo per identificare tendenze o picchi specifici.
 
 ```{r}
 ### **2. Analisi Temporali**
@@ -308,6 +331,14 @@ ggplot(dfUtenti, aes(x = Data_Fine, y = Totaltweets_Max)) +
   ) +
   theme_minimal()
 
+```
+Il grafico mostra una andamento oscillante, in quanto in base alla giornata ci sono stati più o meno tweet.
+
+
+
+Motivo: Analizziamo quando gli utenti tendono a essere più attivi in termini di orari e giorni della settimana per individuare pattern temporali.
+
+```{r}
 # Heatmap della distribuzione dei tweet per orario o giorno della settimana
 # Prima prepariamo i dati per la heatmap
 dfHeatmap <- dataset %>%
@@ -330,6 +361,16 @@ ggplot(dfHeatmap, aes(x = Ora, y = Giorno_Settimana, fill = Totale_Tweet)) +
   ) +
   theme_minimal()
 
+```
+Tramite la heatmap possiamo notare che gli utenti sono più attivi in determinate ore ovvero la mattina presto e fine pomeriggio, e nel weekned, possiamo dedurre che questi momenti sono strategici per pubblicare contenuti e massimizzare il coinvolgimento.
+
+
+
+Motivo: Analizziamo la durata dell'attività degli utenti (in giorni attivi) per capire la persistenza nel tempo.
+
+```{r}
+
+
 # **Durata dell'Attività**
 # Istogramma di Giorni_Attivi
 ggplot(dfUtenti, aes(x = Giorni_Attivi)) +
@@ -340,6 +381,18 @@ ggplot(dfUtenti, aes(x = Giorni_Attivi)) +
     y = "Conteggio Utenti"
   ) +
   theme_minimal()
+
+```
+
+Il grafico mostra che la maggior parte degli utenti è attiva per un singolo giorno, possiamo dedurre che solo una minoranza degli utenti mantiene un'attività prolungata.
+
+
+
+
+Motivo: Confrontiamo la durata dell'attività tra diverse classi di utenti per capire se gli utenti più attivi tendono a essere più persistenti.
+
+```{r}
+
 
 # Boxplot per confrontare Giorni_Attivi tra le classi di attività
 ggplot(dfUtenti, aes(x = Classe_Attivita, y = Giorni_Attivi, fill = Classe_Attivita)) +
@@ -353,7 +406,11 @@ ggplot(dfUtenti, aes(x = Classe_Attivita, y = Giorni_Attivi, fill = Classe_Attiv
   theme_minimal()
   
 ```
+Il grafico mostra una differenza significativa tra le classi, ad esempio con utenti molto attivi che hanno una durata maggiore, possiamo concludere che l'attività e la persistenza sono correlate.
 
+
+
+Motivo: Vogliamo esplorare come il coinvolgimento totale (engagement) e relativo (proporzionale ai follower) variano rispetto al numero di follower degli utenti.
 
 ```{r}
 ### **3. Analisi di Coinvolgimento**
@@ -368,6 +425,18 @@ ggplot(dfUtenti, aes(x = Followers_Max, y = Engagement_Totale)) +
   ) +
   theme_minimal()
 
+```
+Se vediamo una tendenza crescente, significa che un numero maggiore di follower corrisponde a un maggiore engagement totale. Se i punti sono molto dispersi, potrebbe indicare che il numero di follower non è sempre un predittore affidabile dell'engagement.
+
+
+
+
+
+Motivo: uguale
+
+```{r}
+
+
 # Scatter plot di Engagement_Relativo vs. Followers_Max con fit lineare
 ggplot(dfUtenti, aes(x = Followers_Max, y = Engagement_Relativo)) +
   geom_point(color = "darkorange", alpha = 0.6) +
@@ -378,6 +447,16 @@ ggplot(dfUtenti, aes(x = Followers_Max, y = Engagement_Relativo)) +
     y = "Engagement Relativo"
   ) +
   theme_minimal()
+
+```
+Se la linea di regressione è piatta o decrescente, potrebbe indicare che gli utenti con più follower hanno un engagement proporzionalmente inferiore rispetto a quelli con meno follower.
+
+
+
+Motivo: Vogliamo confrontare il coinvolgimento relativo tra le diverse classi di attività degli utenti, filtrando eventuali outliers per avere una visione più chiara.
+
+```{r}
+
 
 # **Engagement Relativo tra le Classi di Attività**
 # Calcolo dei limiti per gli outliers
@@ -403,6 +482,16 @@ ggplot(dfUtenti_no_outliers, aes(x = Classe_Attivita, y = Engagement_Relativo, f
   ) +
   theme_minimal()
 
+```
+Se una classe ha valori medi di engagement relativi più alti, possiamo concludere che gli utenti in quella classe sono più efficaci nel generare coinvolgimento proporzionale al loro pubblico.
+
+
+
+Motivo: Analizziamo l'engagement medio in termini di like e retweet per ogni classe di influenza per identificare i tipi di utenti più efficaci nel coinvolgere il pubblico.
+
+```{r}
+
+
 
 # **Engagement Medio per Tipo di Utente**
 # Preparazione dei dati per il Barplot
@@ -427,7 +516,11 @@ ggplot(dfEngagementMedio, aes(x = Classe_Influenza, y = Media_Engagement, fill =
   ) +
   theme_minimal()
 ```
+Se una classe di influenza mostra valori medi più elevati di like e retweet, possiamo dedurre che questo gruppo di utenti genera più coinvolgimento per singolo contenuto rispetto ad altri gruppi.
 
+
+
+Motivo: Analizziamo la distribuzione delle classi di attività per comprendere la composizione degli utenti in termini di partecipazione e frequenza di attività.
 
 ```{r}
 ### **4. Classificazione degli Utenti**
@@ -451,6 +544,16 @@ ggplot(dfClasseAttivita, aes(x = "", y = Percentuale, fill = Classe_Attivita)) +
   ) +
   theme_minimal()
 
+```
+Tra le classi di attività troviamo alta e moderata, quest'ultima dominante sul primp
+
+
+
+Motivo: Esaminiamo le classi di influenza per determinare quali gruppi di utenti sono più comuni in base alla loro capacità di influenzare il pubblico.
+
+```{r}
+
+
 # Calcolo della distribuzione delle Classi di Influenza
 dfClasseInfluenza <- dfUtenti %>%
   count(Classe_Influenza) %>%
@@ -467,6 +570,14 @@ ggplot(dfClasseInfluenza, aes(x = Classe_Influenza, y = Percentuale, fill = Clas
     fill = "Classe di Influenza"
   ) +
   theme_minimal()
+```
+Osserviamo la classe di influenza "bassa" con percentuali nettamente più alte, possiamo concludere che questo tipo di utente è più rappresentato nella piattaforma, mentre alta e moderata si equivalgono.
+
+
+
+Motivo: Creiamo una heatmap per analizzare la relazione tra classi di attività e classi di influenza. Questo ci aiuta a individuare se esistono correlazioni significative tra il comportamento degli utenti e la loro capacità di influenzare.
+
+```{r}
 
 # **Heatmap incrociata tra Classe_Attivita e Classe_Influenza**
 # Tabella di contingenza
@@ -487,7 +598,11 @@ ggplot(dfContingenzaLong, aes(Var1, Var2, fill = Freq)) +
   ) +
   theme_minimal()
 ```
+La combinazione classe di influenza bassa e classe di attività moderata  hanno frequenze significativamente più alte, possiamo dedurre che determinate classi di attività tendono a essere associate a specifiche classi di influenza.
 
+
+
+Motivo: Analizziamo i sentiment (positivo, neutro, negativo) medi per ogni classe di influenza per verificare se alcune classi hanno un tono predominante nei loro tweet.
 
 ```{r}
 ### **5. Analisi di Sentiment**
@@ -516,6 +631,15 @@ ggplot(dfSentiment, aes(x = Classe_Influenza, y = Valore_Sentiment, fill = Tipo_
     fill = "Tipo di Sentiment"
   ) +
   theme_minimal()
+```
+Questo grafico ci permette di osservare se le classi con maggiore influenza mostrano sentiment più positivi o negativi, fornendo indicazioni sul loro impatto.
+
+
+
+Motivo: Esaminiamo come i sentiment positivi e negativi sono cambiati nel tempo per identificare tendenze o eventi particolari che hanno influenzato l'umore degli utenti.
+
+```{r}
+
 
 # Heatmap dell'intensità del sentiment (positivi vs. negativi) nel tempo
 # Filtra per Tipo_Tweet "Normale"
@@ -544,7 +668,11 @@ ggplot(dfSentimentTime, aes(x = Data_Inizio, y = Tipo_Sentiment, fill = Intensit
   scale_x_date(labels = date_format("%b %Y"))
 
 ```
+I picchi di intensità nel sentiment negativo risultano più significativi, fornendo indizi sulle reazioni degli utenti.
 
+
+
+Motivo: Indaghiamo se esiste una correlazione tra il sentiment degli utenti e il loro livello di coinvolgimento, considerando sia sentiment positivi che negativi.
 ```{r}
 # **Relazione tra Sentiment e Coinvolgimento**
 
@@ -570,10 +698,13 @@ ggplot(dfUtenti, aes(x = Sentiment_Neg, y = Engagement_Totale)) +
   ) +
   theme_minimal()
 ```
-
+- Se i sentiment positivi mostrano una correlazione positiva con l'engagement, possiamo concludere che un atteggiamento positivo genera più interazioni.
+- Una correlazione negativa tra sentiment negativo e engagement potrebbe indicare che i contenuti negativi non attirano altrettanta attenzione.
 
 
 ### **6. Analisi delle Interazioni**
+
+Motivo: La diversità delle interazioni misura il rapporto tra retweet e il totale delle interazioni, indicando quanto l'attività degli utenti è orientata verso la condivisione rispetto ad altri tipi di engagement.
 
 -   **Diversità delle Interazioni**:
 ```{r Analisi_Interazioni, echo=TRUE, warning=FALSE, message=FALSE}
@@ -591,6 +722,15 @@ ggplot(dfUtenti, aes(x = Classe_Influenza, y = Diversita_Interazioni, fill = Cla
     y = "Media Diversità delle Interazioni"
   ) +
   theme_minimal()
+```
+Questo barplot ci consente di osservare quali classi di influenza mostrano una tendenza più marcata verso il retweet rispetto ad altre forme di engagement. Classi di infulenza alta ha una diversità maggiore indicando un forte orientamento alla condivisione.
+
+
+
+Motivo: Analizziamo la relazione tra la diversità delle interazioni e il totale delle interazioni per capire se utenti con più interazioni totali mostrano una diversità maggiore o minore.
+
+```{r}
+
 
 # Scatter plot di Diversità delle Interazioni vs. Totale Interazioni
 ggplot(dfUtenti, aes(x = Totale_Interazioni, y = Diversita_Interazioni, color = Classe_Influenza)) +
@@ -604,7 +744,8 @@ ggplot(dfUtenti, aes(x = Totale_Interazioni, y = Diversita_Interazioni, color = 
   theme_minimal()
 
 ```
-
+Il grafico a dispersione ci permette di osservare se gli utenti più attivi (con un totale di interazioni maggiore) mostrano un comportamento diverso in termini di diversità delle interazioni rispetto a quelli meno attivi. 
+Ad esempio, possiamo verificare se utenti con molte interazioni si concentrano su un unico tipo di engagement o mantengono un mix bilanciato.
 
 
 ```{r Analisi_Rete_Sociale, echo=TRUE, warning=FALSE, message=FALSE}
@@ -642,20 +783,10 @@ ggplot(dfUtenti, aes(x = Totale_Interazioni, y = Diversita_Interazioni, color = 
 ```
 
 ### **7. Confronto tra Classi**
+Motivo: Analizzare come le diverse classi di attività si differenziano in termini di volume complessivo di tweet.
+
 
 ```{r confronto-classi, echo=TRUE, message=FALSE, warning=FALSE}
-# Confronto delle Metriche Chiave: Boxplot o Violin Plot
-
-# Boxplot per Totale_Tweet suddivisi per Classe_Attivita
-ggplot(dfUtenti, aes(x = Classe_Attivita, y = Totale_Tweet, fill = Classe_Attivita)) +
-  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
-  scale_fill_brewer(palette = "Set3") +
-  labs(
-    title = "Distribuzione del Totale Tweet per Classe di Attività",
-    x = "Classe di Attività",
-    y = "Totale Tweet"
-  ) +
-  theme_minimal()
 
 # Boxplot per Engagement_Totale suddiviso per Classe_Influenza
 ggplot(dfUtenti, aes(x = Classe_Influenza, y = Engagement_Totale, fill = Classe_Influenza)) +
@@ -667,7 +798,13 @@ ggplot(dfUtenti, aes(x = Classe_Influenza, y = Engagement_Totale, fill = Classe_
     y = "Engagement Totale"
   ) +
   theme_minimal()
+```
+Mostra come le classi di influenza influenzano l'engagement totale. Le differenze tra mediane e ampiezza delle distribuzioni indicano variazioni significative.
 
+
+Motivo: Confrontare la distribuzione dei follower massimi tra le diverse classi di attività per identificare schemi o anomalie.
+
+```{r}
 # Violin plot per Followers_Max suddiviso per Classe_Attivita
 ggplot(dfUtenti, aes(x = Classe_Attivita, y = Followers_Max, fill = Classe_Attivita)) +
   geom_violin(alpha = 0.7, trim = TRUE) +
@@ -678,7 +815,14 @@ ggplot(dfUtenti, aes(x = Classe_Attivita, y = Followers_Max, fill = Classe_Attiv
     y = "Massimo Followers"
   ) +
   theme_minimal()
+```
+Confronta la distribuzione dei follower massimi per le classi di attività, evidenziando densità e variazioni tra le classi.
 
+
+
+Motivo: Visualizzare la relazione tra il numero medio di tweet giornalieri e le classi di attività, esplorando la loro variabilità.
+
+```{r}
 # Attività Relativa e Tweet Giornalieri: Scatter plot
 ggplot(dfUtenti, aes(x = Tweet_Giornalieri_Medi, y = Classe_Attivita, color = Classe_Attivita)) +
   geom_jitter(alpha = 0.6) +
@@ -690,8 +834,11 @@ ggplot(dfUtenti, aes(x = Tweet_Giornalieri_Medi, y = Classe_Attivita, color = Cl
   ) +
   theme_minimal()
 ```
+Esplora la variabilità nei tweet giornalieri medi per classe di attività, evidenziando il comportamento di gruppi diversi.
 
 ### **8. Analisi Avanzate (se applicabile)**
+
+La heatmap ci permette di identificare visivamente la forza e la direzione delle relazioni lineari tra le variabili quantitative nel dataset. È utile per comprendere quali variabili sono fortemente correlate, debolmente correlate o non correlate tra loro.
 ```{r analisi-avanzate, echo=TRUE, message=FALSE, warning=FALSE}
 
 # Preparazione del dataset per l'analisi
@@ -719,6 +866,16 @@ heatmaply::heatmaply(
 # Visualizzazione con corrplot
 corrplot(correlation_matrix, method = "circle", type = "upper", tl.cex = 0.8, 
          main = "Matrice delle Correlazioni")
+```
+Le variabili fortemente correlate positive (ad esempio, Totale Retweet e Engagement Totale) possono indicare metriche che si influenzano direttamente.
+Le correlazioni negative (se presenti) potrebbero suggerire metriche che si oppongono nel comportamento.
+La mancanza di correlazione (vicino a 0) tra alcune variabili può indicare indipendenza tra di esse, fornendo indicazioni su quali metriche siano più rappresentative o uniche.
+Questo aiuta nella scelta di metriche rilevanti per ulteriori analisi o modelli.
+
+
+Questo grafico visualizza come i gruppi (cluster) si distribuiscono nello spazio bidimensionale delle prime due componenti principali. La PCA consente di ridurre la dimensionalità e di rappresentare i dati in modo più comprensibile, mentre la clusterizzazione aiuta a identificare gruppi omogenei.
+
+```{r}
 
 # Clusterizzazione degli utenti (K-means)
 set.seed(123) # Per riproducibilità
@@ -749,3 +906,6 @@ autoplot(prcomp(dfCluster), data = dfUtenti, colour = 'Cluster') +
   theme_minimal()
 ```
 
+I cluster ben separati indicano che i gruppi di utenti hanno caratteristiche distinte.
+La sovrapposizione tra cluster potrebbe suggerire che i dati non supportano una segmentazione netta, o che il numero di cluster scelto non è ottimale.
+Le posizioni relative dei cluster nello spazio PCA possono fornire indicazioni su quali caratteristiche distinguono un gruppo dall'altro.
