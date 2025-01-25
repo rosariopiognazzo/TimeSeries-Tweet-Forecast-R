@@ -28,6 +28,7 @@ library(igraph)
 library(network)
 library(intergraph)
 library(GGally)
+library(purrr)
 ```
 
 ```{r}
@@ -79,81 +80,111 @@ dataset <- dataset %>%
 ```
 
 ```{r}
+df <- dataset %>%
+  mutate(
+    # Creiamo una colonna con una lista di ID (userid + original_tweet_userid) per ogni riga
+    utenti_coinvolti = pmap(list(userid, original_tweet_userid), union)
+  )
+
+# Seleziona le righe che coinvolgono gli utenti originali o chi ha fatto il retweet
+df <- df %>%
+  filter(
+    userid %in% utenti_coinvolti | original_tweet_userid %in% utenti_coinvolti
+  )
+
+
 # Partizionamento varie tipologie di tweet
+valueSent <- df %>%
+  group_by(userid, original_tweet_userid) %>%
+  summarise(
+    # Conteggi e medie per ciascun tipo di sentiment
+    Negativi_n = sum(sentiment == "neg", na.rm = TRUE),
+    Negativi_score = mean(score[sentiment == "neg"], na.rm = TRUE),
+    
+    Neutrali_n = sum(sentiment == "neu", na.rm = TRUE),
+    Neutrali_score = mean(score[sentiment == "neu"], na.rm = TRUE),
+    
+    Positivi_n = sum(sentiment == "pos", na.rm = TRUE),
+    Positivi_score = mean(score[sentiment == "pos"], na.rm = TRUE)
+  )
+
+
 dfPartizionati <- dataset %>%
   mutate(
     Tipo_Tweet = case_when(
       # Retweet
-      is_retweet == TRUE ~ "Retweet",
+      is_retweet == TRUE ~ "Retweet",  # Cambia 'is_retweet' con 'is_retweeted'
       # Risposte
-      in_reply_to_status_id != "                  0" & is_retweet == FALSE ~ "Risposta",
+      in_reply_to_status_id != "                  0" & is_retweeted == FALSE ~ "Risposta",
       # Citazioni
-      is_quote_status == TRUE & is_retweet == FALSE & in_reply_to_status_id == "                  0" ~ "Citazione",
+      is_quote_status == TRUE & is_retweeted == FALSE & in_reply_to_status_id == "                  0" ~ "Citazione",
       # Tweet Normali
       TRUE ~ "Normale"
+    ),
+    
+    # Identificazione del sentiment prevalente per l'interazione
+    Sentiment_Interazione = case_when(
+      Positivi_n > Negativi_n & Positivi_n > Neutrali_n ~ "pos",
+      Negativi_n > Positivi_n & Negativi_n > Neutrali_n ~ "neg",
+      TRUE ~ "neu" # Default neutrale se non c'è prevalenza
     )
   )
 
 #percentuali delle tipologie di tweet
-(table(dfPartizionati$Tipo_Tweet)/nrow(dataset)) * 100
+table(dfPartizionati$Tipo_Tweet)
 ```
 
 ```{r}
-# Dataset globale per utente
-#
-# Aggregazione per utente
-dfUtenti <- dfPartizionati %>%
+
+dfUtenti <- dfPartizionati2 %>%
   group_by(userid, username) %>%
   summarise(
-    # Conteggio tweet per categoria
     Totale_Tweet = n(),
     Totale_Retweet = sum(Tipo_Tweet == "Retweet"),
     Totale_Risposte = sum(Tipo_Tweet == "Risposta"),
     Totale_Citazioni = sum(Tipo_Tweet == "Citazione"),
-    Totale_Normali = sum(Tipo_Tweet == "Normale"),
+    Totale_TweetNormali = sum(Tipo_Tweet == "Normale"),
     
-    # Andamenti temporali
-    Following_Min = min(following, na.rm = TRUE),
-    Following_Max = max(following, na.rm = TRUE),
-    Followers_Min = min(followers, na.rm = TRUE),
-    Followers_Max = max(followers, na.rm = TRUE),
-    Totaltweets_Min = min(totaltweets, na.rm = TRUE),
-    Totaltweets_Max = max(totaltweets, na.rm = TRUE),
+    TweetNormali_Pos = sum(Tipo_Tweet == "Normale" & sentiment == "pos"),
+    TweetNormali_Neu = sum(Tipo_Tweet == "Normale" & sentiment == "neu"),
+    TweetNormali_Neg = sum(Tipo_Tweet == "Normale" & sentiment == "neg"),
     
-    # Sentiment
-    Sentiment_Pos = mean(score[sentiment == "pos"], na.rm = TRUE),
-    Sentiment_Neu = mean(score[sentiment == "neu"], na.rm = TRUE),
-    Sentiment_Neg = mean(score[sentiment == "neg"], na.rm = TRUE),
+    Retweet_Pos = sum(Tipo_Tweet == "Retweet" & sentiment == "pos"),
+    Retweet_Neu = sum(Tipo_Tweet == "Retweet" & sentiment == "neu"),
+    Retweet_Neg = sum(Tipo_Tweet == "Retweet" & sentiment == "neg"),
     
-    # Intervallo temporale dei dati
-    Data_Inizio = min(tweetcreatedts, na.rm = TRUE),
-    Data_Fine = max(tweetcreatedts, na.rm = TRUE),
+    Replay_Pos = sum(Tipo_Tweet == "Risposta" & sentiment == "pos"),
+    Replay_Neu = sum(Tipo_Tweet == "Risposta" & sentiment == "neu"),
+    Replay_Neg = sum(Tipo_Tweet == "Risposta" & sentiment == "neg"),
     
-    # Interazioni calcolate dai tipi di tweet
+    Quotes_Pos = sum(Tipo_Tweet == "Citazione" & sentiment == "pos"),
+    Quotes_Neu = sum(Tipo_Tweet == "Citazione" & sentiment == "neu"),
+    Quotes_Neg = sum(Tipo_Tweet == "Citazione" & sentiment == "neg"),
+    
+    GlobalMean_Pos = mean(score[sentiment == "pos"], na.rm = TRUE),
+    GlobalMean_Neu = mean(score[sentiment == "neu"], na.rm = TRUE),
+    GlobalMean_Neg = mean(score[sentiment == "neg"], na.rm = TRUE),
+    
+    Mean_Pos_Norm = mean(score[Tipo_Tweet == "Normale" & sentiment == "pos"], na.rm = TRUE),
+    Mean_Neu_Norm = mean(score[Tipo_Tweet == "Normale" & sentiment == "neu"], na.rm = TRUE),
+    Mean_Neg_Norm = mean(score[Tipo_Tweet == "Normale" & sentiment == "neg"], na.rm = TRUE),
+    
     Totale_Interazioni = Totale_Risposte + Totale_Citazioni,
-    
-    # Coinvolgimento
     Media_Retweet = mean(retweetcount, na.rm = TRUE),
     Media_Like = mean(favorite_count, na.rm = TRUE),
     Totale_Retweet = sum(retweetcount, na.rm = TRUE),
     Totale_Like = sum(favorite_count, na.rm = TRUE),
-    
-    # Rapporto attività/account
-    Giorni_Attivi = as.numeric(difftime(max(tweetcreatedts, na.rm = TRUE), min(tweetcreatedts, na.rm = TRUE), units = "days")),
-    Tweet_Giornalieri_Medi = Totale_Tweet / Giorni_Attivi,
-    Rapporto_Follower_Following = mean(followers / following, na.rm = TRUE),
-    
-    # Distribuzione temporale delle attività
-    Orario_Preferito = names(sort(table(tweetcreatedts), decreasing = TRUE)[1])
+    Followers_Min = min(followers, na.rm = TRUE),
+    Followers_Max = max(followers, na.rm = TRUE),
+    Rapporto_Follower_Following = mean(followers / following, na.rm = TRUE)
   ) %>%
   ungroup()
 
-# Calcolo delle metriche di attività e influenza e classificazione
+# Classificazione Utenti in base alle metriche per: Attività, Influenza e Possibile Sentiment
 dfUtenti <- dfUtenti %>%
   mutate(
     # Metriche di Attività
     Interazioni_Totali = Totale_Retweet + Totale_Risposte + Totale_Citazioni,
-    Coerenza_Temporale = Giorni_Attivi / Totale_Tweet,
     
     # Metriche di Influenza
     Engagement_Totale = Totale_Retweet + Totale_Like,
@@ -173,25 +204,278 @@ dfUtenti <- dfUtenti %>%
       Engagement_Relativo >= quantile(Engagement_Relativo, 0.75, na.rm = TRUE) ~ "Alta",
       Engagement_Relativo >= quantile(Engagement_Relativo, 0.50, na.rm = TRUE) ~ "Moderata",
       TRUE ~ "Bassa"
+    ),
+    
+    # Etichettatura basata su numero e score
+    Etichetta = case_when(
+      (Totale_TweetNormali>0 & 
+        TweetNormali_Neg > TweetNormali_Neu & 
+        TweetNormali_Neg > TweetNormali_Pos) & 
+        Mean_Neg_Norm > 0.5 ~ "Potenziale Negativo",
+      
+      (Totale_TweetNormali>0 & 
+        TweetNormali_Pos > TweetNormali_Neu & 
+        TweetNormali_Pos > TweetNormali_Neg) & 
+        Mean_Pos_Norm > 0.5 ~ "Potenziale Positivo",
+      
+      (Totale_TweetNormali>0 &
+        TweetNormali_Neu > TweetNormali_Pos & 
+        TweetNormali_Neu > TweetNormali_Neg) & 
+        Mean_Neu_Norm > 0.5 ~ "Potenziale Neutrale",
+      
+      TRUE ~ "obs"
     )
   )
 
+
+dfUtenti <- dfUtenti %>% mutate(
+  userid = format(as.numeric(userid), 
+                                    scientific = FALSE)
+)
+
+dfUtenti <- dfUtenti %>%
+  distinct(userid, .keep_all = TRUE)
 ```
 
-# Network Analysis
+```{r}
+retweet_relations <- dfPartizionati2 %>%
+  filter(Tipo_Tweet == "Retweet") %>%
+  distinct()  # Assicurati che ogni relazione di retweet sia unica
 
-Preparazione dei dati
+# Codice per creare il dataset delle relazioni:
+dfRetweet <- retweet_relations %>%  
+  summarise(
+    # Conteggi e medie per ciascun tipo di sentiment
+    Negativi_n = sum(sentiment == "neg", na.rm = TRUE),
+    Negativi_score = mean(score[sentiment == "neg"], na.rm = TRUE),
+    
+    Neutrali_n = sum(sentiment == "neu", na.rm = TRUE),
+    Neutrali_score = mean(score[sentiment == "neu"], na.rm = TRUE),
+    
+    Positivi_n = sum(sentiment == "pos", na.rm = TRUE),
+    Positivi_score = mean(score[sentiment == "pos"], na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    # Identificazione del sentiment prevalente per l'interazione
+    Sentiment_Interazione = case_when(
+      Positivi_n > Negativi_n & Positivi_n > Neutrali_n ~ "pos",
+      Negativi_n > Positivi_n & Negativi_n > Neutrali_n ~ "neg",
+      TRUE ~ "neu" # Default neutrale se non c'è prevalenza
+    )
+  )
+```
+
+# Retweet Network Analysis
 
 ```{r}
-#calcolo il numero di retweet ottenuti da ciascun utente
-n_retweet <- dataset %>%
-  filter(is_retweet == 1) %>%
-  group_by(original_tweet_userid) %>%
-  summarise(retweet_count = n()) %>%
-  arrange(desc(retweet_count))
+# Creazione del grafo con igraph
+G_retweet <- graph_from_data_frame(
+  d = dfRetweet,          # Archi
+  vertices = dfUtenti,      # Nodi
+  directed = TRUE           # Grafo orientato
+)
 
-n_retweet
-# cercare modo di visualizzazione
+# Aggiunta di pesi e attributi al grafo
+# E(grafo)$sentiment <- dfRelazioni$Sentiment_Interazione
+# E(grafo)$positivi <- dfRelazioni$Positivi_n
+# E(grafo)$negativi <- dfRelazioni$Negativi_n
+# E(grafo)$neutrali <- dfRelazioni$Neutrali_n
+# 
+# V(grafo)$attivita <- dfUtenti$Classe_Attivita
+# V(grafo)$influenza <- dfUtenti$Classe_Influenza
+# V(grafo)$sentiment <- dfUtenti$Etichetta
+```
+
+```{r}
+library(stringr)
+
+# Filtraggio degli utenti perché altriemnti sono troppi
+# Per influenza
+dfUtenti2 <- dfUtenti %>% 
+  filter(userid %in% dfRetweet$userid_origine | userid %in% dfRetweet$userid_target)
+
+dfRetweet <- dfRetweet %>%
+  mutate(across(c(userid_origine, userid_target), str_trim))
+
+dfUtenti2 <- dfUtenti2 %>%
+  mutate(userid = str_trim(userid))
+
+dfInfluenti <- dfUtenti2 %>%
+  filter(Etichetta %in% c("Potenziale Positivo", "Potenziale Negativo", "Potenziale Neutrale") & Classe_Influenza %in% c("Moderata", "Alta"))
+
+dfRetweet2 <- dfRetweet %>%
+  filter(userid_origine %in% dfInfluenti$userid & 
+           (Negativi_score>0.8 | Positivi_score>0.8 | Neutrali_score>0.8))
+
+
+extra_nodes <- tibble(userid = missing_nodes)
+dfInfluenti <- bind_rows(dfInfluenti, extra_nodes)
+
+
+dfInfluenti <- dfInfluenti %>%
+  filter(Etichetta %in% c("Potenziale Positivo", "Potenziale Negativo", "Potenziale Neutrale") & Classe_Influenza %in% c("Moderata", "Alta"))
+```
+
+```{r}
+# subset del grafo
+G_retweet3 <- graph_from_data_frame(
+  d = dfRetweet2,          # Archi
+  vertices = dfInfluenti,      # Nodi
+  directed = TRUE           # Grafo orientato
+)
+
+library(ggraph)
+# Layout del grafo
+ggraph(G_retweet2, layout = "fr") + # Forza di Fruchterman-Reingold
+  geom_edge_link(aes(color = Sentiment_Interazione), arrow = arrow(type = "closed", length = unit(2, "mm")), alpha = 0.8) +
+  geom_node_point(aes(size = Followers_Max, color = Etichetta)) +
+  geom_node_text(aes(label = username), repel = TRUE, size = 3) +
+  scale_edge_color_manual(values = c("pos" = "green", "neg" = "red", "neu" = "blue")) +
+  scale_color_manual(values = c("Potenziale Positivo" = "darkgreen", "Potenziale Neutrale" = "darkblue", "Potenziale Negativo" = "darkred")) +
+  theme_light()
+```
+
+```{r}
+# Creazione di un grafo con igraph
+G_retweet3 <- graph_from_data_frame(
+  d = dfRelInf,          # Archi
+  vertices = dfVertici,      # Nodi
+  directed = FALSE           # Grafo orientato
+)
+
+# Layout del grafo
+ggraph(G_retweet3, layout = "fr") + # Forza di Fruchterman-Reingold
+  geom_edge_link(aes(color = Sentiment_Interazione), arrow = arrow(type = "closed", length = unit(2, "mm")), alpha = 0.8) +
+  geom_node_point(aes(size = Followers_Max, color = Etichetta)) +
+  geom_node_text(aes(label = username), repel = TRUE, size = 3) +
+  scale_edge_color_manual(values = c("pos" = "green", "neg" = "red", "neu" = "blue")) +
+  scale_color_manual(values = c("Potenziale Positivo" = "darkgreen", "Potenziale Neutrale" = "darkblue", "Potenziale Negativo" = "darkred", "obs"="grey80")) +
+  theme_light()
+```
+
+```{r}
+library(ggnetwork)
+
+# Trasformazione del grafo in un oggetto compatibile con ggnetwork
+grafo_network <- ggnetwork(G_retweet2, arrow.gap = 0.015)
+
+# Visualizzazione del grafo
+ggplot(grafo_network, aes(x = x, y = y, xend = xend, yend = yend)) + 
+  # Archi con colore basato sul Sentiment_Interazione
+  geom_edges(aes(color = Sentiment_Interazione), 
+             arrow = arrow(length = unit(3.5, "pt"), type = "closed")) +
+  # Nodi con dimensione e colore basati sui dati
+  geom_nodes(aes(size = Followers_Max, color = Etichetta)) +
+  # Palette per i colori degli archi
+  scale_color_manual(
+    values = c(
+      "Potenziale Positivo" = "darkgreen", 
+      "Potenziale Neutrale" = "darkblue", 
+      "Potenziale Negativo" = "darkred",
+      "obs" = "grey80"
+    )
+  ) +
+  scale_edge_color_manual(
+    values = c("green", "red", "blue")
+  ) +
+  # Tema minimale e dettagli grafici
+  theme_blank()
+```
+
+```{r}
+# Trasformazione del grafo in un oggetto compatibile con ggnetwork
+grafo_net <- ggnetwork(grafo_Edge, arrow.gap = 0.015)
+
+# Assicurati che Sentiment_Interazione sia un fattore con livelli corretti
+grafo_net$Sentiment_Interazione <- as.factor(grafo_net$Sentiment_Interazione)
+
+# Visualizzazione del grafo
+ggplot(grafo_net, aes(x = x, y = y, xend = xend, yend = yend)) + 
+  geom_nodes(aes(size = Followers_Max, color = Etichetta)) +
+  geom_edges(aes(color = Sentiment_Interazione), 
+             arrow = arrow(length = unit(3.5, "pt"), type = "closed")) +
+  # Palette dei colori per gli archi basata sui livelli di Sentiment_Interazione
+  scale_edge_color_manual(
+    values = c("pos" = "green", "neg" = "red", "neu" = "blue")
+  ) +
+  # Palette dei colori per i nodi
+  scale_color_manual(
+    values = c(
+      "Potenziale Positivo" = "darkgreen", 
+      "Potenziale Neutrale" = "darkblue", 
+      "Potenziale Negativo" = "darkred",
+      "obs" = "grey80"
+    )
+  ) +
+  theme_blank()
+```
+
+## Ipergrafi (?)
+
+```{r}
+# Raggruppare le relazioni con lo stesso tipo di sentiment e alta rilevanza
+# Convertire i dati in una lista di iperarchi
+hyper_relazioni <- dfRelazioni %>%
+  filter(userid_origine %in% dfInfluenti$userid) %>%
+  group_by(Sentiment_Interazione) %>%
+  summarise(
+    utenti_coinvolti = list(unique(c(userid_origine, userid_target)))
+  )
+```
+
+```{r}
+library(HyperG)
+# Creare un ipergrafo dalla lista di archi
+edges_list <- hyper_relazioni$utenti_coinvolti
+hyper_grafo <- hypergraph_from_edgelist(edges_list)
+
+# Visualizzare l'ipergrafo
+plot(hyper_grafo, main = "Ipergrafo delle Relazioni Sentiment")
+```
+
+```{r}
+library(igraph)
+library(ggraph)
+library(dplyr)
+
+# Rimuovere i duplicati basati su userid
+dfUtentiUniti <- dfUtentiUniti %>%
+  distinct(userid, .keep_all = TRUE)
+
+
+# Uniamo userid_origine e userid_target per ottenere tutti i nodi che appaiono nelle relazioni
+nodi_relazioni <- unique(c(dfRelazioni$userid_origine, dfRelazioni$userid_target))
+
+# Controlliamo quali nodi sono presenti in dfUtentiUniti
+nodi_mancanti <- setdiff(nodi_relazioni, dfUtentiUniti$userid)
+
+dfUtenti <- bind_rows(dfUtenti, nodi_mancanti)
+
+# 2. Creazione della rete utilizzando dfRelazioni (Retweet)
+g <- graph_from_data_frame(dfRelazioni, 
+                           directed = TRUE, 
+                           vertices = dfUtentiUniti)
+
+# 4. Definisci i colori per i nodi (in base all'etichetta dell'utente)
+node_colors <- c("Potenziale Negativo" = "red", 
+                 "Potenziale Positivo" = "green", 
+                 "Potenziale Neutrale" = "gray", 
+                 "Non_Etichettati" = "lightgray")
+
+# 5. Definisci i colori per gli archi (basato sul sentiment dei retweet)
+edge_colors <- c("pos" = "green", "neg" = "red", "neu" = "gray")
+
+# 6. Visualizzazione della rete con ggraph
+ggraph(g, layout = 'fr') +
+  # Nodo colorato in base al sentiment dell'utente
+  geom_node_point(aes(color = sentiment), size = 5) +
+  scale_color_manual(values = node_colors) +
+  # Archi colorati in base al sentiment del retweet
+  geom_edge_link(aes(color = sentiment), alpha = 0.8) +
+  scale_edge_color_manual(values = edge_colors) +
+  theme_void() +
+  labs(title = "Rete di Retweet con Sentiment degli Utenti e Interazioni")
 ```
 
 ```{r}
@@ -231,135 +515,4 @@ summary(top_users2$retweet_count) #range buono
 # bisogna filtrare il dataset per considerare solo i retweet associati ai top utenti
 filtered_data <- dataset %>%
   filter(is_retweet == 1 & original_tweet_userid %in% top_users2$original_tweet_userid)
-```
-
-Costruzione delle reti di retweet & visualizzazione
-
-```{r}
-# bisogna creare ora un sotto dataset per ogni top utente con i propri retweet
-# Creare una lista di sotto-dataset per ciascun utente chiave
-sub_datasets <- lapply(top_users2$original_tweet_userid, function(user_id) {
-  dataset %>%
-    filter(is_retweet == 1 & original_tweet_userid == user_id) %>%
-    select(from = userid, to = original_tweet_userid, sentiment)
-}) #POSSIBILE MODIFICA: trovare modo di inserire anche il valore score associato
-
-# rinominiamo i dataset per facilità
-names(sub_datasets) <- top_users2$original_tweet_userid
-# ora in ogni elemento della lista sub_datasets ci sono i retweet relativi a quel top utente
-```
-
-```{r}
-
-retweets_classici <- dataset %>%
-  filter(is_quote_status == "0" & is_retweet=="1") %>%
-  select(userid, username, tweetid, original_tweet_id, original_tweet_userid, original_tweet_username, score) %>%
-  head(1)
-
-# Controlliamo se lo score di original_tweet_id corrisponde a quello di tweetid
-# Creiamo un sotto-dataset con gli original_tweet_id e i loro score
-original_scores <- dataset %>%
-  filter(tweetid %in% retweets_classici$original_tweet_id) %>%
-  select(tweetid, score)
-
-```
-
-```{r}
-# costruisco la rete di retweet per ciascun utente
-graphs <- lapply(sub_datasets, function(edges) {
-  graph <- graph_from_data_frame(edges, directed = TRUE)
-  return(graph)
-})
-
-# rinomino i grafi per identificare il rispettivo top utente
-names(graphs) <- names(sub_datasets)
-# ora in ogni elemento della lista graphs ci sono i grafi relativi a quel top utente
-```
-
-Calcolo delle Metriche di Rete
-
-Ad esempio, calcoliamo alcune metriche chiave:
-
--   **In-degree**: Numero di retweet ricevuti da ciascun nodo.
-
--   **Out-degree**: Numero di retweet effettuati da ciascun nodo.
-
--   **Sentiment medio**: Sentiment medio associato ai retweet.
-
-```{r}
-# # Funzione per calcolare le metriche
-# graph_metriche <- function(graph, edges) {
-#   V(graph)$in_degree <- degree(graph, mode = "in")
-#   V(graph)$out_degree <- degree(graph, mode = "out")
-#   
-#   # calcolo del Sentiment medio per ciascun nodo
-#   sentiment_avg <- edges %>%
-#     group_by(to) %>%
-#     summarise(sentiment_avg = mean(as.numeric(sentiment))) %>%
-#     as.data.frame()
-#   
-#   # unisco il sentiment ai nodi
-#   V(graph)$sentiment_avg <- sentiment_avg$sentiment_avg[match(V(graph)$name, sentiment_avg$to)]
-#   
-#   return(graph)
-# }
-# 
-# graphs <- mapply(graph_metriche, graphs, sub_datasets, SIMPLIFY = FALSE)
-
-```
-
-visualizziamo ad esempio il primo grafo:
-
-```{r}
-edges23 <- sub_datasets[[23]]
-graph23 <- graph_from_data_frame(d = edges23, directed = T)
-
-# # Esplorazione del grafo
-# print(graph1)
-# summary(graph1)
-
-# aggiungiamo il sentiment associato
-E(graph23)$sentiment <- edges23$sentiment
-
-# # calcolo grado entrante e uscente
-# # Grado entrante e uscente
-# V(graph1)$in_degree <- degree(graph1, mode = "in")
-# V(graph1)$out_degree <- degree(graph1, mode = "out")
-
-# Calcolo del grado entrante
-in_degree <- degree(graph23, mode = "in")
-out_degree <- degree(graph23, mode = "out")
-
-# # Visualizzazione della distribuzione
-# ggplot(data.frame(out_degree), aes(x = out_degree)) +
-#   geom_histogram(binwidth = 1, fill = "blue", alpha = 0.7, color = "black") +
-#   scale_x_continuous(limits = c(0, quantile(out_degree, 0.95))) + # Zoom sul 95° percentile
-#   theme_minimal() +
-#   labs(title = "Distribuzione del grado uscente", x = "Grado uscente", y = "Conteggio")
-# 
-# ggplot(data.frame(out_degree), aes(x=out_degree)) +
-#   geom_histogram()
-
-
-# Filtraggio dei nodi in base al grado uscente
-graph_filtered <- delete.vertices(graph23, V(graph23)[degree(graph23, mode = "out") > 1])
-
-# Normalizzare la dimensione dei vertici in base al grado uscente
-max_degree <- max(out_degree) # Trova il grado massimo
-min_degree <- min(out_degree) # Trova il grado minimo
-
-# Normalizzazione tra 1 e 10 (puoi modificare l'intervallo)
-vertex_size_normalized <- 1 + (out_degree - min_degree) / (max_degree - min_degree) * 9
-
-# Visualizzazione del grafo con la nuova dimensione dei nodi
-plot(
-  graph23,
-  vertex.size = vertex_size_normalized,  # Usare la dimensione normalizzata
-  vertex.color = "lightblue",
-  edge.color = ifelse(E(graph23)$sentiment == "pos", "green", 
-                      ifelse(E(graph23)$sentiment == "neg", "red", "gray")),
-  edge.arrow.size = 0.5,
-  vertex.label = NA,  # Rimuove i nomi dei vertici
-  main = "Rete di Retweet (Filtrata)"
-)
 ```
