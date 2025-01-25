@@ -224,8 +224,8 @@ Motivo: Analizziamo la distribuzione dei like totali per capire il livello di en
   # **Distribuzione delle Metriche di Engagement**:
 
     # Calcolo dei limiti per Totale_Like
-Q1_like <- quantile(dfUtenti$Totale_Like, 0.25, na.rm = TRUE)
-Q3_like <- quantile(dfUtenti$Totale_Like, 0.75, na.rm = TRUE)
+Q1_like <- quantile(dfUtenti$Totale_Tweet, 0.25, na.rm = TRUE)
+Q3_like <- quantile(dfUtenti$Totale_Tweet, 0.75, na.rm = TRUE)
 IQR_like <- Q3_like - Q1_like
 lower_limit_like <- Q1_like - 1.5 * IQR_like
 upper_limit_like <- Q3_like + 1.5 * IQR_like
@@ -246,7 +246,7 @@ dfUtenti_filtrato <- dfUtenti %>%
 
 # Istogramma di `Totale_Like`
 ggplot(dfUtenti_filtrato, aes(x = Totale_Like)) +
-  geom_histogram(binwidth = 50, fill = "blue", color = "white") +
+  geom_histogram(binwidth = 1, fill = "blue", color = "white") +
   labs(title = "Distribuzione dei Like Totali (Senza Outliers)", x = "Totale Like", y = "Frequenza") +
   theme_minimal()
 ```
@@ -571,7 +571,7 @@ ggplot(dfClasseInfluenza, aes(x = Classe_Influenza, y = Percentuale, fill = Clas
   ) +
   theme_minimal()
 ```
-Osserviamo la classe di influenza "bassa" con percentuali nettamente più alte, possiamo concludere che questo tipo di utente è più rappresentato nella piattaforma, mentre alta e moderata si equivalgono.
+Osserviamo la classe di influenza "bassa" ha percentuali nettamente più alte, possiamo concludere che questo tipo di utente è più rappresentato nella piattaforma, mentre alta e moderata si equivalgono.
 
 
 

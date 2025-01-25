@@ -416,6 +416,21 @@ create_comparison_plot("following", "qqplot")
 # Dopo aver escluso tutti gli outlier, possiamo dire che i dati centrali seguono meglio una distribuzione normale. Tuttavia, non è una perfetta distribuzione normale.
                                          
 create_comparison_plot("score", "boxplot")
+# 1. Con Outliers
+# Osservazioni:
+#   Il box centrale (dal primo al terzo quartile) rappresenta la maggior parte dei dati e si concentra tra circa 0.75 e 0.9.
+# I baffi estendono il range dei valori, ma non ci sono valori estremamente lontani indicati come outlier (nel caso specifico di questa distribuzione).
+# La distribuzione complessiva appare abbastanza simmetrica, ma con una coda più lunga verso i valori bassi.
+# 2. Senza Grandi Outliers
+# Osservazioni:
+#   Dopo aver rimosso eventuali valori estremi significativi, la forma del boxplot non cambia in modo significativo.
+# I valori medi e interquartili rimangono simili, segno che gli outlier grandi non influenzano sostanzialmente la distribuzione centrale.
+# Le code (violin plot) diventano leggermente più uniformi.
+# 3. Senza Outliers
+# Osservazioni:
+#   Quando tutti gli outlier (grandi e piccoli) sono rimossi, la distribuzione appare ancora più regolare e compatta.
+# L'intervallo dei valori è lievemente più ristretto rispetto ai primi due boxplot, ma i valori centrali rimangono invariati.
+# La simmetria generale della distribuzione persiste.
 
 
 dataset %>%
