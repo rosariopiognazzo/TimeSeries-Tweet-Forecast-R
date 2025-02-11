@@ -18,9 +18,6 @@ library(tibble)
 ```{r}
 Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
 
-#laptop
-#Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
-
 dataset <- Sentiment_fr_tweet_2023
 
 dataset <- dataset %>%
@@ -147,25 +144,12 @@ risultati_utenti <- risultati_utenti %>%
     Media_Retweet_Per_Tweet = Totale_Retweet / Totale_Tweet,
     Media_Like_Per_Tweet = Totale_Like / Totale_Tweet,
     
-    # Etichettatura per attività
-    Attività_Utente = case_when(
-      Totale_Tweet > quantile(Totale_Tweet, 0.75, na.rm = TRUE) |
-      Interazioni_Totali > quantile(Interazioni_Totali, 0.75, na.rm = TRUE) ~ "Molto Attivo",
-      Totale_Tweet > quantile(Totale_Tweet, 0.25, na.rm = TRUE) |
-      Interazioni_Totali > quantile(Interazioni_Totali, 0.25, na.rm = TRUE) ~ "Moderatamente Attivo",
-      TRUE ~ "Poco Attivo"
-    ),
-    
-    # Etichettatura per influenza
-    Influenza_Utente = case_when(
-      Followers_Max > quantile(Followers_Max, 0.75, na.rm = TRUE) |
-      Engagement_Totale > quantile(Engagement_Totale, 0.75, na.rm = TRUE) |
-      Engagement_Relativo > quantile(Engagement_Relativo, 0.75, na.rm = TRUE) ~ "Influente",
-      Followers_Max > quantile(Followers_Max, 0.25, na.rm = TRUE) |
-      Engagement_Totale > quantile(Engagement_Totale, 0.25, na.rm = TRUE) |
-      Engagement_Relativo > quantile(Engagement_Relativo, 0.25, na.rm = TRUE) ~ "Moderatamente Influente",
-      TRUE ~ "Poco Influente"
-    ),
+    # Calcolo delle mediane per le metriche chiave
+    Mediana_Tweet = quantile(Totale_Tweet, 0.50, na.rm = TRUE),
+    Mediana_Interazioni = quantile(Interazioni_Totali, 0.50, na.rm = TRUE),
+    Mediana_Followers = quantile(Followers_Max, 0.50, na.rm = TRUE),
+    Mediana_Engagement_Totale = quantile(Engagement_Totale, 0.50, na.rm = TRUE),
+    Mediana_Engagement_Relativo = quantile(Engagement_Relativo, 0.50, na.rm = TRUE),
     
     # Calcolo dei punteggi ponderati (sostituendo NaN con 0)
     SentimentPOS_Ponderato = ifelse(is.nan(Mean_Pos_Norm * 0.5 + GlobalMean_Pos * 0.2), 0, Mean_Pos_Norm * 0.5 + GlobalMean_Pos * 0.2),
@@ -181,8 +165,27 @@ risultati_utenti <- risultati_utenti %>%
     
   )
 
+risultati_utenti<-risultati_utenti %>%
+  filter_all(all_vars(!is.infinite(.))) %>%
+  na.omit()
 
-risultati_utenti <- risultati_utenti %>% mutate(
+dfAND <- risultati_utenti %>%
+  mutate(
+    Attività_Utente = case_when(
+      Totale_Tweet > Mediana_Tweet & Interazioni_Totali > Mediana_Interazioni ~ "Attivo",
+      TRUE ~ "Poco Attivo"
+    ),
+    
+    # Etichettatura per influenza
+    Influenza_Utente = case_when(
+      Followers_Max > Mediana_Followers &
+      Engagement_Totale > Mediana_Engagement_Totale &
+      Engagement_Relativo > Mediana_Engagement_Relativo ~ "Influente",
+      TRUE ~ "Poco Influente"
+    )
+  )
+
+dfAND <- dfAND %>% mutate(
   userid = format(as.numeric(userid), 
                                     scientific = FALSE)
 )
@@ -203,50 +206,99 @@ risultati_utenti <- risultati_utenti %>% mutate(
 -   Permette di identificare quali gruppi sono predominanti (es. utenti influenti o utenti passivi) e quindi di orientare le azioni strategiche.
 
 ```{r}
-# Distribuzione dei sottogruppi basata su metriche chiave
-distribuzione_sottogruppi <- risultati_utenti %>%
-  summarise(
-    Attivi = sum(Totale_Tweet > median(Totale_Tweet, na.rm = TRUE)),
-    Passivi = sum(Totale_Tweet <= median(Totale_Tweet, na.rm = TRUE)),
-    Influencers = sum(Engagement_Totale > median(Engagement_Totale, na.rm = TRUE)),
-    Non_Influencers = sum(Engagement_Totale <= median(Engagement_Totale, na.rm = TRUE))
-  )
+# Analisi della distribuzione e relazioni tra sottogruppi
 
-# Grafico a barre per la distribuzione
-distribuzione_grafico <- distribuzione_sottogruppi %>%
-  pivot_longer(cols = everything(), names_to = "Gruppo", values_to = "Conteggio") %>%
-  ggplot(aes(x = Gruppo, y = Conteggio, fill = Gruppo)) +
-  geom_bar(stat = "identity") +
-  labs(title = "Distribuzione dei Sottogruppi", x = "Sottogruppo", y = "Conteggio") +
+# Calcolo distribuzione per categoria (percentuale)
+distribuzione_sottogruppi <- dfAND %>%
+  summarise(
+    Attivi = sum(Attività_Utente == "Attivo"),
+    Poco_Attivo = sum(Attività_Utente == "Poco Attivo"),
+    
+    Influente = sum(Influenza_Utente == "Influente"),
+    Poco_Influente = sum(Influenza_Utente == "Poco Influente"),
+    
+    Negativi = sum(Tipologia_Sentiment == "Negativo"),
+    Neutrali = sum(Tipologia_Sentiment == "Neutrale"),
+    Positivi = sum(Tipologia_Sentiment == "Positivo")
+  ) %>%
+  pivot_longer(cols = everything(), names_to = "Categoria", values_to = "Conteggio") %>%
+  mutate(Percentuale = (Conteggio / sum(Conteggio)) * 100)
+
+# Grafico 1: Distribuzione semplice
+grafico_distribuzione <- distribuzione_sottogruppi %>%
+  ggplot(aes(x = reorder(Categoria, -Conteggio), y = Conteggio, fill = Categoria)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  geom_text(aes(label = sprintf("%.1f%%", Percentuale)), vjust = -0.5, size = 3) +
+  labs(title = "Distribuzione dei Sottogruppi", x = "Categoria", y = "Conteggio") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(grafico_distribuzione)
+# vorrei che per le categorie influente, moderato influente, poco influente, molto attivo, moderatamente attivo e poco attivo sia rappresentata la porzione di negativi, positivi e neutrali
+
+# Relazione tra attività e influenza
+relazione_attivita_influenza <- dfAND %>%
+  group_by(Attività_Utente, Influenza_Utente) %>%
+  summarise(Conteggio = n()) %>%
+  ungroup()
+
+# Grafico 2: Heatmap attività vs influenza
+grafico_relazione <- relazione_attivita_influenza %>%
+  ggplot(aes(x = Attività_Utente, y = Influenza_Utente, fill = Conteggio)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Conteggio), color = "black", size = 4) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "Relazione tra Attività e Influenza", x = "Attività Utente", y = "Influenza Utente") +
   theme_minimal()
 
-print(distribuzione_grafico)
+print(grafico_relazione)
 
-## plot2
-distribuzione_sottogruppi <- risultati_utenti %>%
-  summarise(
-    Molto_Attivi = sum(Attività_Utente=="Molto Attivo"),
-    Moderato_Attivo = sum(Attività_Utente=="Moderatamente Attivo"),
-    Poco_Attivo = sum(Attività_Utente=="Poco Attivo"),
-    
-    Influente = sum(Influenza_Utente=="Influente"),
-    Moderato_Influente = sum(Influenza_Utente=="Moderatamente Influente"),
-    Poco_Influente = sum(Influenza_Utente=="Poco Influente"),
-    
-    Negativi = sum(Tipologia_Sentiment=="Negativo"),
-    Neutrali = sum(Tipologia_Sentiment=="Neutrale"),
-    Positivi = sum(Tipologia_Sentiment=="Positivo")
-  )
+# Relazione tra tipologia di sentiment e influenza
+relazione_sentiment_influenza <- dfAND %>%
+  group_by(Tipologia_Sentiment, Influenza_Utente) %>%
+  summarise(Conteggio = n()) %>%
+  ungroup()
 
-# Grafico a barre per la distribuzione
-distribuzione_grafico <- distribuzione_sottogruppi %>%
-  pivot_longer(cols = everything(), names_to = "Gruppo", values_to = "Conteggio") %>%
-  ggplot(aes(x = Gruppo, y = Conteggio, fill = Gruppo)) +
-  geom_bar(stat = "identity") +
-  labs(title = "Distribuzione dei Sottogruppi", x = "Sottogruppo", y = "Conteggio") +
+# Grafico 3: Barre accostate sentiment vs influenza
+grafico_sentiment_influenza <- relazione_sentiment_influenza %>%
+  ggplot(aes(x = Tipologia_Sentiment, y = Conteggio, fill = Influenza_Utente)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Distribuzione Sentiment per Categoria di Influenza",
+       x = "Tipologia di Sentiment", y = "Conteggio") +
   theme_minimal()
 
-print(distribuzione_grafico)
+print(grafico_sentiment_influenza)
+
+# Relazione tra attività e sentiment
+relazione_attivita_sentiment <- dfAND %>%
+  group_by(Attività_Utente, Tipologia_Sentiment) %>%
+  summarise(Conteggio = n()) %>%
+  ungroup()
+
+# Grafico 4: Barre accostate attività vs sentiment
+grafico_attivita_sentiment <- relazione_attivita_sentiment %>%
+  ggplot(aes(x = Attività_Utente, y = Conteggio, fill = Tipologia_Sentiment)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Distribuzione Attività per Categoria di Sentiment",
+       x = "Attività Utente", y = "Conteggio") +
+  theme_minimal()
+
+print(grafico_attivita_sentiment)
+
+# Relazione attività, influenza e sentiment (grafico a dispersione)
+grafico_dispersione <- dfAND %>%
+  ggplot(aes(x = log1p(as.numeric(Totale_Tweet)), 
+             y = log1p(Engagement_Totale),  # Trasformazione logaritmica
+             color = Tipologia_Sentiment, 
+             size = Followers_Max)) +
+  geom_point(alpha = 0.7) +
+  labs(title = "Relazione tra Attività, Engagement (log) e Sentiment",
+       x = "Totale Tweet", y = "Logaritmo Engagement Totale", color = "Sentiment", size = "Massimo Followers") +
+  facet_grid(~Tipologia_Sentiment) +
+  theme_minimal()
+
+print(grafico_dispersione)
+
 ```
 
 ### 2. **Analisi della relazione tra attività e influenza**
@@ -264,24 +316,81 @@ print(distribuzione_grafico)
 -   Questo insight può aiutare a distinguere tra "leader di pensiero" e "utenti iperattivi" ma meno influenti.
 
 ```{r}
-# Scatterplot per attività vs influenza
-attivita_vs_influenza <- risultati_utenti %>%
-  ggplot(aes(x = Totale_Tweet, y = Engagement_Totale, color = Engagement_Relativo)) +
+# Scatterplot migliorato con trasformazione logaritmica
+attivita_vs_influenza_log <- dfAND %>%
+  ggplot(aes(x = log1p(Totale_Tweet), y = log1p(Engagement_Totale), color = Followers_Max)) +
   geom_point(alpha = 0.6) +
+  scale_color_gradient(low = "skyblue", high = "red") +
+  geom_smooth(method = "lm", se = TRUE, color = "black", linetype = "dashed") +
   labs(
-    title = "Relazione tra Attività e Influenza",
-    x = "Totale Tweet",
-    y = "Engagement Totale",
-    color = "Engagement Relativo"
+    title = "Relazione tra Attività e Influenza (Scala Logaritmica)",
+    x = "Log(Totale Tweet + 1)",
+    y = "Log(Engagement Totale + 1)",
+    color = "Numero di Followers"
   ) +
   theme_minimal()
 
-print(attivita_vs_influenza)
+print(attivita_vs_influenza_log)
 
-# Calcolo della correlazione
-correlazione <- cor(risultati_utenti$Totale_Tweet, risultati_utenti$Engagement_Totale, use = "complete.obs")
+# Heatmap di correlazioni
+library(reshape2)
+cor_matrix <- cor(dfAND %>% select(Totale_Tweet, Engagement_Totale, Engagement_Relativo, Followers_Max), use = "complete.obs")
+cor_melted <- melt(cor_matrix)
 
-print(paste("Correlazione tra Attività e Influenza:", correlazione))
+heatmap <- ggplot(cor_melted, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  labs(
+    title = "Heatmap delle Correlazioni",
+    x = "",
+    y = "",
+    fill = "Correlazione"
+  ) +
+  theme_minimal()
+
+print(heatmap)
+
+```
+
+```{r}
+#AIC
+x <- dfAND %>%
+  mutate(Attività_Utente = as.factor(Attività_Utente),
+         Influenza_Utente = as.factor(Attività_Utente),
+         Tipologia_Sentiment = as.factor(Tipologia_Sentiment))%>%
+  select(-c(userid, Totale_Like, Totale_Tweet))
+
+# Modello completo con tutte le variabili
+modello_completo <- lm(Engagement_Totale ~ ., data = x)
+
+# Modello vuoto con solo l'intercetta
+modello_vuoto <- lm(Engagement_Totale ~ 1, data = x)
+
+# Forward selection basata su AIC
+modello_step_aic <- step(modello_vuoto, 
+                         scope = list(lower = modello_vuoto, upper = modello_completo), 
+                         direction = "both", 
+                         trace = FALSE)
+
+summary(modello_step_aic)
+```
+
+```{r}
+# Forward selection basata su BIC
+n <- nrow(x)  # Numero di osservazioni
+modello_step_bic <- step(modello_vuoto, 
+                         scope = list(lower = modello_vuoto, upper = modello_completo), 
+                         direction = "both", 
+                         k = log(n),  # Penalità BIC
+                         trace = FALSE)
+
+summary(modello_step_bic)
+
+## analisi multicollinearità
+library(car)
+vif_modello <- vif(modello_step_aic)
+print(vif_modello)
+#Valori di VIF > 5 suggeriscono multicollinearità; valutare la rimozione di variabili correlate.
 ```
 
 ### 3. **Analisi del sentiment rispetto al tipo di attività**
@@ -300,7 +409,7 @@ print(paste("Correlazione tra Attività e Influenza:", correlazione))
 
 ```{r}
 # Distribuzione del sentiment per tipo di attività
-sentiment_attivita <- risultati_utenti %>%
+sentiment_attivita <- dfAND %>%
   select(TweetNormali_Pos, TweetNormali_Neu, TweetNormali_Neg,
          Retweet_Pos, Retweet_Neu, Retweet_Neg,
          Replay_Pos, Replay_Neu, Replay_Neg,
@@ -348,31 +457,49 @@ print(sentiment_attivita_grafico)
 
 -   Può rivelare cluster di interazioni significativi (es. polarizzazione) o punti di connessione tra diversi gruppi.
 
+1\. Segmentazione per attività e sentiment
+
 ```{r}
-## migliorare !! 
-# Creazione di metriche di interazione
-interazione_sottogruppi <- risultati_utenti %>%
-  group_by(Tipologia_Sentiment) %>%
+# Interazione segmentata per attività e sentiment
+interazione_sottogruppi <- dfAND %>%
+  group_by(Attività_Utente, Tipologia_Sentiment) %>%
   summarise(
     Risposte_Medie = mean(Totale_Risposte, na.rm = TRUE),
     Citazioni_Medie = mean(Totale_Citazioni, na.rm = TRUE),
-    Engagement_Medio = mean(Engagement_Totale, na.rm = TRUE)
+    Engagement_Medio = mean(Engagement_Totale, na.rm = TRUE),
+    .groups = "drop"
   )
 
-# Visualizzazione tramite grafico
+# Visualizzazione delle interazioni segmentate
 interazione_grafico <- interazione_sottogruppi %>%
-  pivot_longer(cols = c(Risposte_Medie, Citazioni_Medie, Engagement_Medio), names_to = "Metrica", values_to = "Valore") %>%
-  ggplot(aes(x = Tipologia_Sentiment, y = Valore, fill = Metrica)) +
-  geom_bar(stat = "identity", position = "fill") +
+  pivot_longer(cols = c(Risposte_Medie, Citazioni_Medie, Engagement_Medio), 
+               names_to = "Metrica", values_to = "Valore") %>%
+  ggplot(aes(x = Tipologia_Sentiment, y = Valore, fill = Attività_Utente)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Metrica, scales = "free") +
   labs(
-    title = "Interazioni tra Sottogruppi",
+    title = "Interazioni Segmentate tra Sottogruppi",
     x = "Tipologia Sentiment",
     y = "Valore Medio",
-    fill = "Metrica"
+    fill = "Attività Utente"
   ) +
   theme_minimal()
 
 print(interazione_grafico)
+
+```
+
+2\. Analisi statistica
+
+```{r}
+# Test ANOVA per differenze tra gruppi
+anova_result <- aov(Totale_Risposte ~ Tipologia_Sentiment + Attività_Utente, data = dfAND)
+summary(anova_result)
+
+# Post-hoc test (Tukey HSD)
+tukey_result <- TukeyHSD(anova_result)
+print(tukey_result)
+
 ```
 
 ### 6. **Clusterizzazione e analisi dei gruppi di utenti**
@@ -397,11 +524,16 @@ library(factoextra)
 
 # PCA
 pca_input <- risultati_utenti %>%
-  select(-c(userid, Attività_Utente, Influenza_Utente, Tipologia_Sentiment)) %>%
+  select(-c(userid, Tipologia_Sentiment, 
+            Mediana_Engagement_Relativo, 
+            Mediana_Engagement_Totale, 
+            Mediana_Tweet, 
+            Mediana_Interazioni, 
+            Mediana_Followers)) %>%
   filter_all(all_vars(!is.infinite(.))) %>%
   na.omit()
 
-pca <- prcomp(pca_input, scale. = TRUE)
+pca <- prcomp(pca_input, scale.= TRUE)
 
 # Scree plot
 fviz_eig(pca, addlabels = TRUE, ylim = c(0, 100), 
@@ -481,12 +613,12 @@ silhouette_fun <- function(k){
   mean(sil[,3])
 }
 
-k_values <- 2:10
+k_values <- 2:15
 silhouette_scores <- sapply(k_values,silhouette_fun)
 
 
 # Visualizza il grafico
-plot(2:10, silhouette_scores[1:9], type = "b", pch = 19, frame = FALSE,
+plot(2:15, silhouette_scores[1:14], type = "b", pch = 19, frame = FALSE,
      xlab = "Numero di cluster", ylab = "Punteggio medio di silhouette",
      main = "Indice di silhouette")+
   abline(v = 2, lty = 2, col="darkred")
@@ -622,124 +754,643 @@ cat("Indice Calinski-Harabasz per k=3: ", CH_k3, "\n")
 
 ##### Estrazione Cluster da PCA + confronto con label ricavati in precedenza
 
+Dipende dal **tipo di confronto** che vuoi fare con KMeans:
+
+**Se vuoi un confronto equo** → Usa la **mediana**
+
+-   logica AND
+
+```{r}
+dfAND <- risultati_utenti %>%
+  mutate(
+    Attività_Utente = case_when(
+      Totale_Tweet > Mediana_Tweet & Interazioni_Totali > Mediana_Interazioni ~ "Attivo",
+      TRUE ~ "Poco Attivo"
+    ),
+    
+    # Etichettatura per influenza
+    Influenza_Utente = case_when(
+      Followers_Max > Mediana_Followers &
+      Engagement_Totale > Mediana_Engagement_Totale &
+      Engagement_Relativo > Mediana_Engagement_Relativo ~ "Influente",
+      TRUE ~ "Poco Influente"
+    )
+  )
+```
+
+-   logica OR
+
+```{r}
+dfOR <- risultati_utenti %>%
+  mutate(
+    Attività_Utente = case_when(
+      Totale_Tweet > Mediana_Tweet | Interazioni_Totali > Mediana_Interazioni ~ "Attivo",
+      TRUE ~ "Poco Attivo"
+    ),
+    
+    # Etichettatura per influenza
+    Influenza_Utente = case_when(
+      Followers_Max > Mediana_Followers |
+      Engagement_Totale > Mediana_Engagement_Totale |
+      Engagement_Relativo > Mediana_Engagement_Relativo ~ "Influente",
+      TRUE ~ "Poco Influente"
+    )
+  )
+```
+
+-   Estrazioni cluster da PCA e confronto con gruppi delle etichette.
+
+    Osserviamo prima i cluster identificati dal kmeans:
+
 ```{r}
 library(mclust)
+input1 <- dfAND %>%
+  select(-c(userid, Tipologia_Sentiment, Attività_Utente, Influenza_Utente,
+            Mediana_Engagement_Relativo, 
+            Mediana_Engagement_Totale, 
+            Mediana_Tweet, 
+            Mediana_Interazioni, 
+            Mediana_Followers)) %>%
+  filter_all(all_vars(!is.infinite(.))) %>%
+  na.omit()
 
-X <- risultati_utenti %>%
+pca1 <- prcomp(input1, scale.= TRUE)
+pca_AND <- pca1$x[, 1:10]
+
+X1 <- dfAND %>%
 filter_all(all_vars(!is.infinite(.))) %>%
   na.omit()
 
-kmeans_res3 <- kmeans(pca_10, centers = 3)
-X$Cluster_Kmeans <- kmeans_res3$cluster
+kmeans_dfAND <- kmeans(pca_AND, centers = 2)
+X1$Cluster_Kmeans <- kmeans_dfAND$cluster
 
 # Biplot colorato per i cluster K-means
-fviz_pca_ind(pca, 
+fviz_pca_ind(pca1, 
              geom = "point",
-             col.ind = as.factor(X$Cluster_Kmeans),  # Colori per cluster
-             palette = "jco",
-             title = "PCA colorata per Cluster K-means")
+             col.ind = as.factor(X1$Cluster_Kmeans),  # Colori per cluster
+             title = "PCA colorata per Cluster K-means (MED-AND)")
 ```
 
 ```{r}
-# Tabella di contingenza per Tipologia di sentiment
-table(X$Tipologia_Sentiment, X$Cluster_Kmeans)
+input2 <- dfOR %>%
+  select(-c(userid, Tipologia_Sentiment, Attività_Utente, Influenza_Utente,
+            Mediana_Engagement_Relativo, 
+            Mediana_Engagement_Totale, 
+            Mediana_Tweet, 
+            Mediana_Interazioni, 
+            Mediana_Followers)) %>%
+  filter_all(all_vars(!is.infinite(.))) %>%
+  na.omit()
 
-ari <- adjustedRandIndex(X$Tipologia_Sentiment, X$Cluster_Kmeans)
-cat("Adjusted Rand Index (ARI): ", ari)
+pca2 <- prcomp(input2, scale.= TRUE)
+pca_OR <- pca2$x[, 1:10]
 
-# Biplot colorato per la categoria originale
-fviz_pca_ind(pca, 
+X2 <- dfOR %>%
+filter_all(all_vars(!is.infinite(.))) %>%
+  na.omit()
+
+kmeans_dfOR <- kmeans(pca_OR, centers = 2)
+X2$Cluster_Kmeans <- kmeans_dfOR$cluster
+
+# Biplot colorato per i cluster K-means
+fviz_pca_ind(pca2, 
              geom = "point",
-             col.ind = X$Tipologia_Sentiment,  # Colori per categoria
-             palette = "jco",
-             title = "PCA colorata per Categoria Originale")
+             col.ind = as.factor(X2$Cluster_Kmeans),  # Colori per cluster
+             title = "PCA colorata per Cluster K-means (MED-OR)")
 ```
+
+Ora osserviamo invece i gruppi originali identificati dalle varie etichettature.
+
+-   Dataset logica **AND**, etichetta **Attività dell'utente**:
 
 ```{r}
 # Tabella di contingenza per Attività dell'utente
-table(X$Attività_Utente, X$Cluster_Kmeans)
+table(X1$Attività_Utente, X1$Cluster_Kmeans)
 
-ari <- adjustedRandIndex(X$Attività_Utente, X$Cluster_Kmeans)
-cat("Adjusted Rand Index (ARI): ", ari)
+ari1 <- adjustedRandIndex(X1$Attività_Utente, X1$Cluster_Kmeans)
+cat("Adjusted Rand Index (ARI): ", ari1)
 
 # Biplot colorato per la categoria originale
-fviz_pca_ind(pca, 
+fviz_pca_ind(pca1, 
              geom = "point",
-             col.ind = X$Attività_Utente,  # Colori per categoria
-             palette = "jco",
-             title = "PCA colorata per Categoria Originale")
+             col.ind = X1$Attività_Utente,  # Colori per categoria
+             title = "PCA colorata per Categoria: Attività dell'utente")
 ```
+
+-   Dataset logica **AND**, etichetta **Influenza dell'utente**:
 
 ```{r}
 # Tabella di contingenza per Influenza dell'Utente
-table(X$Influenza_Utente, X$Cluster_Kmeans)
+table(X1$Influenza_Utente, X1$Cluster_Kmeans)
 
-ari <- adjustedRandIndex(X$Influenza_Utente, X$Cluster_Kmeans)
-cat("Adjusted Rand Index (ARI): ", ari)
+ari1 <- adjustedRandIndex(X1$Influenza_Utente, X1$Cluster_Kmeans)
+cat("Adjusted Rand Index (ARI): ", ari1)
 
 # Biplot colorato per la categoria originale
-fviz_pca_ind(pca, 
+fviz_pca_ind(pca1, 
              geom = "point",
-             col.ind = X$Influenza_Utente,  # Colori per categoria
-             palette = "jco",
-             title = "PCA colorata per Categoria Originale")
+             col.ind = X1$Influenza_Utente,  # Colori per categoria
+             title = "PCA colorata per Categoria: Influenza dell'Utente")
 ```
 
-##### Estrazione Cluster da PCA + confronto con label ricavati in precedenza
+-   Dataset logica **OR**, etichetta **Attività dell'utente**:
 
-```{r}
-set.seed(123)  # Assicura la riproducibilità
-kmeans_result <- kmeans(pca_input, centers = 3)  # Sostituisci k con il numero ottimale
+    ```{r}
+    # Tabella di contingenza per Attività dell'utente
+    table(X2$Attività_Utente, X2$Cluster_Kmeans)
 
-X$cluster_2 <- kmeans_result$cluster
-```
+    ari2 <- adjustedRandIndex(X2$Attività_Utente, X2$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari2)
 
-```{r}
-# Tabella di contingenza per Tipologia di sentiment
-t = table(X$Tipologia_Sentiment, X$cluster_2)
-t
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca2, 
+                 geom = "point",
+                 col.ind = X2$Attività_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Attività dell'utente")
+    ```
 
-ari <- adjustedRandIndex(X$Tipologia_Sentiment, X$cluster_2)
-cat("\nAdjusted Rand Index (ARI): ", ari, "\n")
+-   Dataset logica **OR**, etichetta **Influenza dell'utente**:
 
-purity <- function(table) {
-  sum(apply(table, 2, max)) / sum(table)
-}
+    ```{r}
+    # Tabella di contingenza per Influenza dell'Utente
+    table(X2$Influenza_Utente, X2$Cluster_Kmeans)
 
-p <- purity(t)
-cat("Purezza dei cluster rispetto alle originali: ", p, "\n")
-```
+    ari2 <- adjustedRandIndex(X2$Influenza_Utente, X2$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari2)
 
-```{r}
-# Tabella di contingenza per Attività dell'utente
-t = table(X$Attività_Utente, X$cluster_2)
-t
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca2, 
+                 geom = "point",
+                 col.ind = X2$Influenza_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Influenza dell'Utente")
+    ```
 
-ari <- adjustedRandIndex(X$Attività_Utente, X$cluster_2)
-cat("\nAdjusted Rand Index (ARI): ", ari, "\n")
+-   **Etichettatura Basata su Cluster Naturali (Distribuzione)**
 
-purity <- function(table) {
-  sum(apply(table, 2, max)) / sum(table)
-}
+    **Logica**:
 
-p <- purity(t)
-cat("Purezza dei cluster rispetto alle originali: ", p, "\n")
-```
+    Si individuano gruppi naturali nella distribuzione di **Totale_Tweet** e **Interazioni_Totali** (per attività) e **Followers_Max**, **Engagement_Totale**, **Engagement_Relativo** (per influenza).\
+    Si usa il metodo **Jenks Natural Breaks** per identificare le soglie più naturali tra i gruppi di dati.
 
-```{r}
-t = table(X$Influenza_Utente, X$cluster_2)
-t
+    -   Logica **AND**
 
-ari <- adjustedRandIndex(X$Influenza_Utente, X$cluster_2)
-cat("\nAdjusted Rand Index (ARI): ", ari, "\n")
+    ```{r}
+    # library(classInt)  # Per Jenks
+    # 
+    # breaks_attivita <- classIntervals(risultati_utenti$Totale_Tweet, n = 2, style = "jenks")$brks
+    # breaks_influenza <- classIntervals(risultati_utenti$Followers_Max, n = 2, style = "jenks")$brks
+    # 
+    # dfJenksAND <- risultati_utenti %>%
+    #   mutate(
+    #     Attivita_Utente = ifelse(Totale_Tweet > breaks_attivita[2] & 
+    #                                Interazioni_Totali > breaks_attivita[2], "Attivo", "Poco Attivo"),
+    #     Influenza_Utente = ifelse(Followers_Max > breaks_influenza[2] & 
+    #                                 Engagement_Totale > breaks_influenza[2] &
+    #                                 Engagement_Relativo > breaks_influenza[2], "Influente", "Poco Influente")
+    #   )
+    ```
 
-purity <- function(table) {
-  sum(apply(table, 2, max)) / sum(table)
-}
+    -   Logica **OR**
 
-p <- purity(t)
-cat("Purezza dei cluster rispetto alle originali: ", p, "\n")
-```
+    ```{r}
+    # 
+    # dfJenksOR <- risultati_utenti %>%
+    #   mutate(
+    #     Attivita_Utente = ifelse(Totale_Tweet > breaks_attivita[2] | 
+    #                                Interazioni_Totali > breaks_attivita[2], "Attivo", "Poco Attivo"),
+    #     Influenza_Utente = ifelse(Followers_Max > breaks_influenza[2] | 
+    #                                 Engagement_Totale > breaks_influenza[2] |
+    #                                 Engagement_Relativo > breaks_influenza[2], "Influente", "Poco Influente")
+    #   )
+    ```
+
+-   **Etichettatura Basata su Scoring Combinato**
+
+    **Logica**:\
+    Creiamo un **punteggio aggregato** per **attività** e **influenza**, normalizzando i valori e pesandoli. Usiamo la **mediana** per definire i due gruppi.
+
+    ```{r}
+    dfScore <- risultati_utenti %>%
+      mutate(
+        Attivita_Score = scale(Totale_Tweet)*0.5 + 
+          scale(Interazioni_Totali)*0.5,
+        
+        Influenza_Score = scale(Followers_Max)*0.4 + 
+          scale(Engagement_Totale)*0.3 + 
+          scale(Engagement_Relativo)*0.3,
+        
+        Attivita_Utente = ifelse(Attivita_Score > median(Attivita_Score, 
+                                                         na.rm = TRUE), 
+                                 "Attivo", "Poco Attivo"),
+        Influenza_Utente = ifelse(Influenza_Score > median(Influenza_Score, 
+                                                           na.rm = TRUE), 
+                                 "Influente", "Poco Influente")
+        )
+    ```
+
+    Osserviamo cluster individuati dal kmeans:
+
+    ```{r}
+    input3 <- dfScore %>%
+      select(-c(userid, Tipologia_Sentiment, Attivita_Utente, Influenza_Utente,
+                Mediana_Engagement_Relativo, 
+                Mediana_Engagement_Totale, 
+                Mediana_Tweet, 
+                Mediana_Interazioni, 
+                Mediana_Followers)) %>%
+      filter_all(all_vars(!is.infinite(.))) %>%
+      na.omit()
+
+    pca3 <- prcomp(input3, scale.= TRUE)
+    pca_score <- pca3$x[, 1:10]
+
+    X3 <- dfScore %>%
+    filter_all(all_vars(!is.infinite(.))) %>%
+      na.omit()
+
+    kmeans_dfScore <- kmeans(pca_score, centers = 2)
+    X3$Cluster_Kmeans <- kmeans_dfScore$cluster
+
+    # Biplot colorato per i cluster K-means
+    fviz_pca_ind(pca3, 
+                 geom = "point",
+                 col.ind = as.factor(X3$Cluster_Kmeans),  # Colori per cluster
+                 title = "PCA colorata per Cluster K-means (SCORE)")
+    ```
+
+    Osserviamo i gruppi delle etichette:
+
+    -   Etichetta **Attività dell'utente**
+
+    ```{r}
+    # Tabella di contingenza per Attività dell'utente
+    table(X3$Attivita_Utente, X3$Cluster_Kmeans)
+
+    ari3 <- adjustedRandIndex(X3$Attivita_Utente, X3$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari3)
+
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca3, 
+                 geom = "point",
+                 col.ind = X3$Attivita_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Attività dell'utente")
+    ```
+
+    -   Etichetta **Influenza dell'utente**
+
+    ```{r}
+    # Tabella di contingenza per Influenza dell'Utente
+    table(X3$Influenza_Utente, X3$Cluster_Kmeans)
+
+    ari3 <- adjustedRandIndex(X1$Influenza_Utente, X3$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari3)
+
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca3, 
+                 geom = "point",
+                 col.ind = X3$Influenza_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Influenza dell'Utente")
+    ```
+
+-   **Etichettatura Basata su Deviazione Standard**
+
+    **Logica**:\
+    Gli utenti **significativamente sopra la media** (+1 deviazione standard) sono considerati **Attivi** o **Influente**
+
+    -   Logica **AND**
+
+    ```{r}
+    dfDevStd_AND <- risultati_utenti %>%
+      mutate(
+        Attivita_Utente = ifelse(
+          Totale_Tweet > mean(Totale_Tweet, na.rm = TRUE) + 
+            sd(Totale_Tweet, na.rm = TRUE) & 
+          Interazioni_Totali > mean(Interazioni_Totali, na.rm = TRUE) + 
+            sd(Interazioni_Totali, na.rm = TRUE), "Attivo", "Poco Attivo"),
+        
+        Influenza_Utente = ifelse(
+          Followers_Max > mean(Followers_Max, na.rm = TRUE)+
+            sd(Followers_Max, na.rm = TRUE) &
+          Engagement_Totale > mean(Engagement_Totale, na.rm = TRUE) + 
+            sd(Engagement_Totale, na.rm = TRUE) &
+          Engagement_Relativo > mean(Engagement_Relativo, na.rm = TRUE) + 
+            sd(Engagement_Relativo, na.rm = TRUE), "Influente", "Poco Influente")
+      )
+    ```
+
+    -   Logica **OR**
+
+    ```{r}
+    dfDevStd_OR <- risultati_utenti %>%
+      mutate(
+        Attivita_Utente = ifelse(
+          Totale_Tweet > mean(Totale_Tweet, na.rm = TRUE) + 
+            sd(Totale_Tweet, na.rm = TRUE) | 
+          Interazioni_Totali > mean(Interazioni_Totali, na.rm = TRUE) + 
+            sd(Interazioni_Totali, na.rm = TRUE), "Attivo", "Poco Attivo"),
+        
+        Influenza_Utente = ifelse(
+          Followers_Max > mean(Followers_Max, na.rm = TRUE)+
+            sd(Followers_Max, na.rm = TRUE) |
+          Engagement_Totale > mean(Engagement_Totale, na.rm = TRUE) + 
+            sd(Engagement_Totale, na.rm = TRUE) |
+          Engagement_Relativo > mean(Engagement_Relativo, na.rm = TRUE) + 
+            sd(Engagement_Relativo, na.rm = TRUE), "Influente", "Poco Influente")
+      )
+    ```
+
+    Osserviamo cluster del kmeans
+
+    Logica **AND**:
+
+    ```{r}
+    input4 <- dfDevStd_AND %>%
+      select(-c(userid, Tipologia_Sentiment, Attivita_Utente, Influenza_Utente,
+                Mediana_Engagement_Relativo, 
+                Mediana_Engagement_Totale, 
+                Mediana_Tweet, 
+                Mediana_Interazioni, 
+                Mediana_Followers)) %>%
+      filter_all(all_vars(!is.infinite(.))) %>%
+      na.omit()
+
+    pca4 <- prcomp(input4, scale.= TRUE)
+    pca_dev1 <- pca4$x[, 1:10]
+
+    X4 <- dfDevStd_AND %>%
+    filter_all(all_vars(!is.infinite(.))) %>%
+      na.omit()
+
+    kmeans_dfDev1 <- kmeans(pca_dev1, centers = 2)
+    X4$Cluster_Kmeans <- kmeans_dfDev1$cluster
+
+    # Biplot colorato per i cluster K-means
+    fviz_pca_ind(pca4, 
+                 geom = "point",
+                 col.ind = as.factor(X4$Cluster_Kmeans),  # Colori per cluster
+                 title = "PCA colorata per Cluster K-means (DEV-AND)")
+    ```
+
+    Logica **OR**:
+
+    ```{r}
+    input5 <- dfDevStd_OR %>%
+      select(-c(userid, Tipologia_Sentiment, Attivita_Utente, Influenza_Utente,
+                Mediana_Engagement_Relativo, 
+                Mediana_Engagement_Totale, 
+                Mediana_Tweet, 
+                Mediana_Interazioni, 
+                Mediana_Followers)) %>%
+      filter_all(all_vars(!is.infinite(.))) %>%
+      na.omit()
+
+    pca5 <- prcomp(input5, scale.= TRUE)
+    pca_dev2 <- pca5$x[, 1:10]
+
+    X5 <- dfDevStd_OR %>%
+    filter_all(all_vars(!is.infinite(.))) %>%
+      na.omit()
+
+    kmeans_dfDev2 <- kmeans(pca_dev2, centers = 2)
+    X5$Cluster_Kmeans <- kmeans_dfDev2$cluster
+
+    # Biplot colorato per i cluster K-means
+    fviz_pca_ind(pca5, 
+                 geom = "point",
+                 col.ind = as.factor(X5$Cluster_Kmeans),  # Colori per cluster
+                 title = "PCA colorata per Cluster K-means (DEV-OR)")
+    ```
+
+    Osserviamo gruppi delle etichette
+
+    -   Dataset logica **AND**, etichetta **Attività dell'utente**:
+
+    ```{r}
+    # Tabella di contingenza per Attività dell'utente
+    table(X4$Attivita_Utente, X4$Cluster_Kmeans)
+
+    ari4 <- adjustedRandIndex(X4$Attivita_Utente, X4$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari4)
+
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca4, 
+                 geom = "point",
+                 col.ind = X4$Attivita_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Attività dell'utente")
+    ```
+
+    -   Dataset logica **AND**, etichetta **Influenza dell'utente**:
+
+    ```{r}
+    # Tabella di contingenza per Influenza dell'Utente
+    table(X4$Influenza_Utente, X4$Cluster_Kmeans)
+
+    ari4 <- adjustedRandIndex(X4$Influenza_Utente, X4$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari4)
+
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca4, 
+                 geom = "point",
+                 col.ind = X4$Influenza_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Influenza dell'Utente")
+    ```
+
+    -   Dataset logica **OR**, etichetta **Attività dell'utente**:
+
+    ```{r}
+    # Tabella di contingenza per Attività dell'utente
+    table(X5$Attivita_Utente, X5$Cluster_Kmeans)
+
+    ari5 <- adjustedRandIndex(X5$Attivita_Utente, X5$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari5)
+
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca5, 
+                 geom = "point",
+                 col.ind = X5$Attivita_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Attività dell'utente")
+    ```
+
+    -   Dataset logica **OR**, etichetta **Influenza dell'utente**:
+
+    ```{r}
+    # Tabella di contingenza per Influenza dell'Utente
+    table(X5$Influenza_Utente, X5$Cluster_Kmeans)
+
+    ari5 <- adjustedRandIndex(X5$Influenza_Utente, X5$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari5)
+
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca5, 
+                 geom = "point",
+                 col.ind = X5$Influenza_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Influenza dell'Utente")
+    ```
+
+-   **Etichettatura Basata su Quantili Asimmetrici**
+
+    **Logica**:\
+    Gli utenti **più attivi/influenti** vengono classificati con soglie **asimmetriche**:\
+    Attività: **75° percentile per Tweet, 50° per Interazioni\
+    **Influenza: **75° percentile per Followers, 50° per Engagement**
+
+    -   Logica AND
+
+    ```{r}
+    dfQuantAND <- risultati_utenti %>%
+      mutate(
+        Attivita_Utente = ifelse(
+          Totale_Tweet > quantile(Totale_Tweet, 0.75, na.rm = TRUE) &
+          Interazioni_Totali>quantile(Interazioni_Totali,0.5, na.rm = TRUE), "Attivo", "Poco Attivo"),
+        
+        Influenza_Utente = ifelse(
+          Followers_Max > quantile(Followers_Max, 0.75, na.rm = TRUE) &
+          Engagement_Totale > quantile(Engagement_Totale, 0.5, na.rm = TRUE), "Influente", "Poco Influente")
+      )
+    ```
+
+    -   Logica OR
+
+    ```{r}
+    dfQuantOR <- risultati_utenti %>%
+      mutate(
+        Attivita_Utente = ifelse(
+          Totale_Tweet > quantile(Totale_Tweet, 0.75, na.rm = TRUE) |
+          Interazioni_Totali>quantile(Interazioni_Totali,0.5, na.rm = TRUE), "Attivo", "Poco Attivo"),
+        
+        Influenza_Utente = ifelse(
+          Followers_Max > quantile(Followers_Max, 0.75, na.rm = TRUE) |
+          Engagement_Totale > quantile(Engagement_Totale, 0.5, na.rm = TRUE), "Influente", "Poco Influente")
+      )
+    ```
+
+    Osserviamo i cluster del kmeans
+
+    Logica **AND**
+
+    ```{r}
+    input6 <- dfQuantAND %>%
+      select(-c(userid, Tipologia_Sentiment, Attivita_Utente, Influenza_Utente,
+                Mediana_Engagement_Relativo, 
+                Mediana_Engagement_Totale, 
+                Mediana_Tweet, 
+                Mediana_Interazioni, 
+                Mediana_Followers)) %>%
+      filter_all(all_vars(!is.infinite(.))) %>%
+      na.omit()
+
+    pca6 <- prcomp(input6, scale.= TRUE)
+    pca_quant1 <- pca6$x[, 1:10]
+
+    X6 <- dfQuantAND %>%
+    filter_all(all_vars(!is.infinite(.))) %>%
+      na.omit()
+
+    kmeans_dfQuant1 <- kmeans(pca_quant1, centers = 2)
+    X6$Cluster_Kmeans <- kmeans_dfQuant1$cluster
+
+    # Biplot colorato per i cluster K-means
+    fviz_pca_ind(pca6, 
+                 geom = "point",
+                 col.ind = as.factor(X6$Cluster_Kmeans),  # Colori per cluster
+                 title = "PCA colorata per Cluster K-means (Quant-AND)")
+    ```
+
+    Logica **OR**
+
+    ```{r}
+    input7 <- dfQuantOR %>%
+      select(-c(userid, Tipologia_Sentiment, Attivita_Utente, Influenza_Utente,
+                Mediana_Engagement_Relativo, 
+                Mediana_Engagement_Totale, 
+                Mediana_Tweet, 
+                Mediana_Interazioni, 
+                Mediana_Followers)) %>%
+      filter_all(all_vars(!is.infinite(.))) %>%
+      na.omit()
+
+    pca7 <- prcomp(input7, scale.= TRUE)
+    pca_quant2 <- pca7$x[, 1:10]
+
+    X7 <- dfQuantOR %>%
+    filter_all(all_vars(!is.infinite(.))) %>%
+      na.omit()
+
+    kmeans_dfQuant2 <- kmeans(pca_quant2, centers = 2)
+    X7$Cluster_Kmeans <- kmeans_dfQuant2$cluster
+
+    # Biplot colorato per i cluster K-means
+    fviz_pca_ind(pca7, 
+                 geom = "point",
+                 col.ind = as.factor(X7$Cluster_Kmeans),  # Colori per cluster
+                 title = "PCA colorata per Cluster K-means (Quant-OR)")
+    ```
+
+    Osserviamo i gruppi delle etichette
+
+    -   Dataset logica **AND**, etichetta **Attività dell'utente**:
+
+    ```{r}
+    # Tabella di contingenza per Attività dell'utente
+    table(X6$Attivita_Utente, X6$Cluster_Kmeans)
+
+    ari6 <- adjustedRandIndex(X6$Attivita_Utente, X6$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari6)
+
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca6, 
+                 geom = "point",
+                 col.ind = X6$Attivita_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Attività dell'utente")
+    ```
+
+    -   Dataset logica **AND**, etichetta **Influenza dell'utente**:
+
+    ```{r}
+    # Tabella di contingenza per Influenza dell'Utente
+    table(X6$Influenza_Utente, X6$Cluster_Kmeans)
+
+    ari6<- adjustedRandIndex(X6$Influenza_Utente, X6$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari6)
+
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca6, 
+                 geom = "point",
+                 col.ind = X6$Influenza_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Influenza dell'Utente")
+    ```
+
+    -   Dataset logica **OR**, etichetta **Attività dell'utente**:
+
+    ```{r}
+    # Tabella di contingenza per Attività dell'utente
+    table(X7$Attivita_Utente, X7$Cluster_Kmeans)
+
+    ari7 <- adjustedRandIndex(X7$Attivita_Utente, X7$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari7)
+
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca7, 
+                 geom = "point",
+                 col.ind = X7$Attivita_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Attività dell'utente")
+    ```
+
+    -   Dataset logica **OR**, etichetta **Influenza dell'utente**:
+
+    ```{r}
+    # Tabella di contingenza per Influenza dell'Utente
+    table(X7$Influenza_Utente, X7$Cluster_Kmeans)
+
+    ari7 <- adjustedRandIndex(X7$Influenza_Utente, X7$Cluster_Kmeans)
+    cat("Adjusted Rand Index (ARI): ", ari7)
+
+    # Biplot colorato per la categoria originale
+    fviz_pca_ind(pca7, 
+                 geom = "point",
+                 col.ind = X7$Influenza_Utente,  # Colori per categoria
+                 title = "PCA colorata per Categoria: Influenza dell'Utente")
+    ```
 
 ### 7. **Analisi del rapporto sentiment-engagement**
 
@@ -756,16 +1407,19 @@ cat("Purezza dei cluster rispetto alle originali: ", p, "\n")
 -   Aiuta a progettare strategie per aumentare l’engagement.
 
 ```{r}
-sentiment_engagement <- risultati_utenti %>%
+# Calcolare l'engagement medio per tipo di sentiment, includendo diverse variabili
+sentiment_engagement <- dfAND %>%
   group_by(Tipologia_Sentiment) %>%
   summarise(
     Engagement_Medio = mean(Engagement_Totale, na.rm = TRUE),
-    Engagement_Relativo_Medio = mean(Engagement_Relativo, na.rm = TRUE)
+    Engagement_Relativo_Medio = mean(Engagement_Relativo, na.rm = TRUE),
+    Engagement_Low = mean(Engagement_Totale[Engagement_Totale < quantile(Engagement_Totale, 0.25)], na.rm = TRUE),  # Engagement basso
+    Engagement_High = mean(Engagement_Totale[Engagement_Totale > quantile(Engagement_Totale, 0.75)], na.rm = TRUE)  # Engagement alto
   )
 
-# Grafico
-sentiment_engagement_grafico <- sentiment_engagement %>%
-  pivot_longer(cols = c(Engagement_Medio, Engagement_Relativo_Medio), names_to = "Metrica", values_to = "Valore") %>%
+# Grafico a barre per Engagement Medio e Engagement Relativo
+sentiment_engagement %>%
+  pivot_longer(cols = c(Engagement_Medio, Engagement_Relativo_Medio, Engagement_Low, Engagement_High), names_to = "Metrica", values_to = "Valore") %>%
   ggplot(aes(x = Tipologia_Sentiment, y = Valore, fill = Metrica)) +
   geom_bar(stat = "identity", position = "dodge") +
   labs(
@@ -776,7 +1430,21 @@ sentiment_engagement_grafico <- sentiment_engagement %>%
   ) +
   theme_minimal()
 
-print(sentiment_engagement_grafico)
+# Aggiungere un Boxplot per vedere la distribuzione dell'engagement
+dfAND %>%
+  ggplot(aes(x = Tipologia_Sentiment, y = log1p(Engagement_Totale), fill = Tipologia_Sentiment)) +
+  geom_boxplot(alpha=0.5)+
+  geom_violin(alpha=0.3) +
+  labs(
+    title = "Distribuzione dell'Engagement per Tipologia di Sentiment",
+    x = "Sentiment",
+    y = "Engagement Totale"
+  ) +
+  theme_minimal()
+
+# Calcolare ANOVA per verificare se ci sono differenze significative
+anova_engagement <- aov(Engagement_Totale ~ Tipologia_Sentiment, data = risultati_utenti)
+summary(anova_engagement)
 ```
 
 ### 9. **Confronto tra utenti attivi e passivi**
@@ -792,18 +1460,21 @@ print(sentiment_engagement_grafico)
 -   Aiuta a ottimizzare le strategie di coinvolgimento mirato.
 
 ```{r}
-
-# Confronto metriche
-confronto_metriche <- risultati_utenti %>%
+# Confronto tra utenti attivi e passivi su metriche di sentiment, engagement e influenza
+confronto_metriche <- dfAND %>%
   group_by(Attività_Utente) %>%
   summarise(
     Sentiment_Pos_Medio = mean(SentimentPOS_Ponderato, na.rm = TRUE),
     Sentiment_Neu_Medio = mean(SentimentNEU_Ponderato, na.rm = TRUE),
-    Sentiment_Neg_Medio = mean(SentimentNEG_Ponderato, na.rm = TRUE)
+    Sentiment_Neg_Medio = mean(SentimentNEG_Ponderato, na.rm = TRUE),
+    Engagement_Medio = mean(Engagement_Totale, na.rm = TRUE),
+    Engagement_Relativo_Medio = mean(Engagement_Relativo, na.rm = TRUE),
+    Follower_Medio = mean(Followers_Max, na.rm = TRUE),
+    .groups = "drop"
   )
 
-# Grafico
-confronto_metriche_grafico <- confronto_metriche %>%
+# Grafico a barre per confronto tra attivi e passivi
+confronto_metriche %>%
   pivot_longer(cols = -Attività_Utente, names_to = "Metrica", values_to = "Valore") %>%
   ggplot(aes(x = Attività_Utente, y = Valore, fill = Metrica)) +
   geom_bar(stat = "identity", position = "dodge") +
@@ -815,5 +1486,38 @@ confronto_metriche_grafico <- confronto_metriche %>%
   ) +
   theme_minimal()
 
-print(confronto_metriche_grafico)
+# Boxplot per vedere la distribuzione dell'engagement tra attivi e passivi
+dfAND %>%
+  ggplot(aes(x = Attività_Utente, y = log1p(Engagement_Totale), fill = Attività_Utente)) +
+  geom_boxplot() +
+  labs(
+    title = "Distribuzione dell'Engagement tra Utenti Attivi e Passivi",
+    x = "Tipo di Attività",
+    y = "Engagement Totale"
+  ) +
+  facet_wrap(~Tipologia_Sentiment, scales = "free")+
+  theme_minimal()
+
+# Test T per confrontare la media dell'engagement tra utenti attivi e passivi
+test_engagement <- t.test(Engagement_Totale ~ Attività_Utente, data = dfAND)
+print(test_engagement)
+# Attività_Utente deve eavere per forza due livelli 
+
+# Grafico a dispersione per analizzare la relazione tra attività e engagement
+dfAND %>%
+  ggplot(aes(x = as.numeric(Totale_Tweet), y = Engagement_Totale, color = Attività_Utente)) +
+  geom_point(alpha = 0.6) +
+  labs(
+    title = "Attività vs Engagement per Utenti Attivi e Passivi",
+    x = "Totale Tweet",
+    y = "Engagement Totale",
+    color = "Tipo di Attività"
+  ) +
+  facet_wrap(~Attività_Utente, scales = "free") +
+  theme_minimal()
+
+# Test statistico per verificare se l'attività influisce sull'engagement
+modello_engagement <- lm(Engagement_Totale ~ Attività_Utente + Totale_Tweet + Followers_Max, data = dfAND)
+summary(modello_engagement)
+
 ```
