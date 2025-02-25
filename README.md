@@ -1,9 +1,11 @@
 # README - Analisi Statistica-Temporale dei Tweet francofoni sulla guerra Russo-Ucraina
 
 ## Descrizione del Progetto
+
 L’obiettivo di questo lavoro è condurre un’analisi statistica approfondita sui tweet in lingua francese pubblicati tra il _24 febbraio 2023_ e il _4 marzo 2023_, riguardanti la guerra Russo-Ucraina. Lo studio si concentrerà inizialmente sull’esplorazione delle variabili quanti tative presenti nel dataset, con particolare attenzione all’individuazione di eventuali relazioni tra di esse. L’obiettivo è sviluppare modelli statistici capaci di descrivere e spiegare le interazioni tra le variabili, analizzando come si influenzano a vicenda. Successivamente, l’attenzione si sposterà sull’analisi temporale dei dati. Non solo verrà descritto l’andamento dei tweet nel tempo, ma si cercherà anche di costruire modelli statistici in grado di **rappresentare le serie storiche**, valutando la possibilità dei modelli di effettuare previsioni (**forecasting**) sui dati. I modelli sviluppati quindi saranno testati e confrontati tra loro al fine di individuare il più efficace. Infine, nell’ultima parte il progetto esplorerà l’utilizzo dei modelli di linguaggio (LLM) per la generazione di **dataset sintetici**. L’obiettivo sarà verificare se tali modelli possano produrre dataset _gemelli_ che mantengano la stessa struttura e le stesse informazioni di quelli originali, ma con un numero ridotto di osservazioni. Questo per verificare se il loro utilizzo potrebbe essere utile al fine di trarre conclusioni senza dover elaborare un numero enorme di dati.
 
 ## Struttura del Progetto
+
 Il progetto è suddiviso nelle seguenti sezioni:
 
 1. **Introduzione**: Panoramica dell'analisi e degli obiettivi.
@@ -27,6 +29,7 @@ Il progetto è suddiviso nelle seguenti sezioni:
    - Valutazione dell'affidabilità dei dati sintetici rispetto a quelli reali.
 
 ## Requisiti Tecnici
+
 Per eseguire il codice del progetto, sono necessari i seguenti strumenti:
 
 - **Linguaggio di programmazione**: R
@@ -37,6 +40,7 @@ Per eseguire il codice del progetto, sono necessari i seguenti strumenti:
   - `dplyr`, `tidyverse` per la manipolazione dei dati.
 
 ## Istruzioni per l'Esecuzione
+
 1. **Scaricare il dataset**: Il dataset è presente nella repository.
 2. **Installare le librerie necessarie**:
    ```r
@@ -48,6 +52,7 @@ Per eseguire il codice del progetto, sono necessari i seguenti strumenti:
    -  `LLMs.RMD`: raccoglie i codici per l'analisi del dataset sintetico. 
 
 ## Contatti
+
 Per ulteriori informazioni: rosariopiognazzo@gmail.com
 ---
 
