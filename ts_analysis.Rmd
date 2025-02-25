@@ -1,0 +1,1801 @@
+---
+title: "Time_series_analysis"
+author: "Rosario Pio Gnazzo"
+date: "2024-12-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      message=FALSE, 
+                      warning=FALSE, 
+                      fig.align='center', fig.width = 10)
+options(xts_check_TZ = FALSE)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(highfrequency)
+library(xts)
+library(forecast)
+library(lubridate)
+library(gridExtra)
+library(urca)
+library(tibble)
+```
+
+```{r}
+# Caricare librerie necessarie
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(corrplot)
+library(gridExtra)
+library(ggpubr)# Per il QQ-Plot e PP-Plot
+
+#carichiamo il dataset in R
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
+
+#non si lavora mai sul dataset raw, ma su una copia
+data <- Sentiment_fr_tweet_2023
+
+#correggiamo il formato delle variabili
+dataset <- data %>%
+  mutate(userid = as.character(userid),
+         username = as.character(username),
+         acctdesc = as.character(acctdesc),
+         location = as.character(location),
+         following = as.numeric(following),
+         followers = as.numeric(followers),
+         totaltweets = as.numeric(totaltweets),
+         tweetid = as.character(tweetid),
+         retweetcount = as.numeric(retweetcount),
+         favorite_count = as.numeric(favorite_count),
+         text = as.character(text),
+         language = as.character(language),
+         favorite_count = as.numeric(favorite_count),
+         
+         is_retweet = as.factor(is_retweet),
+         original_tweet_id = format(as.numeric(original_tweet_id), 
+                                    scientific = FALSE),
+         original_tweet_userid = format(as.numeric(original_tweet_userid), 
+                                        scientific = FALSE),
+         original_tweet_username = as.character(original_tweet_username),
+         
+         in_reply_to_status_id = format(as.numeric(in_reply_to_status_id), 
+                                        scientific = FALSE),
+         in_reply_to_user_id = format(as.numeric(in_reply_to_user_id), 
+                                      scientific = FALSE),
+         in_reply_to_screen_name = as.character(in_reply_to_screen_name),
+         
+         is_quote_status = as.factor(is_quote_status),
+         quoted_status_id = format(as.numeric(quoted_status_id), 
+                                   scientific = FALSE),
+         quoted_status_userid = format(as.numeric(quoted_status_userid), 
+                                       scientific = FALSE),
+         quoted_status_username = as.character(quoted_status_username),
+         
+         sentiment = as.factor(sentiment),
+         score = as.numeric(score)
+  )
+```
+
+```{r}
+#pc casa
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
+
+#laptop
+#Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/SAD/Sentiment_fr_tweet_2023.csv")
+
+dataset <- Sentiment_fr_tweet_2023
+
+dataset <- dataset %>%
+  mutate(userid = as.character(userid),
+         following = as.numeric(following),
+         followers = as.numeric(followers),
+         totaltweets = as.numeric(totaltweets),
+         tweetid = as.character(tweetid),
+         retweetcount = as.numeric(retweetcount),
+         favorite_count = as.numeric(favorite_count),
+         is_retweet = as.factor(ifelse(is_retweet == FALSE, 0, 1)),
+         is_quote_status = as.factor(ifelse(is_quote_status == FALSE, 0, 1)),
+         sentiment = as.factor(sentiment),
+         score = as.numeric(score),
+         score_std = scale(score))
+```
+
+# Time Series Analysis della feature numerica *Score*
+
+Osserviamo come la variabile *score* cambia nel tempo per le tre classi della variabile *sentiment* (neg, neu e pos):
+
+```{r, fig.width=15}
+df <- dataset %>% select(tweetcreatedts, score, sentiment)
+
+ggplot(df, aes(x = tweetcreatedts, y = score, color = sentiment)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Time series della variabile <Score>") +
+  facet_wrap(~sentiment, scales = "free", ncol = 1) +
+  theme_light()
+```
+
+Osserviamo la loro distribuzione
+
+```{r}
+ggplot(df, aes(x = score, fill = sentiment)) +
+  geom_density(alpha = 0.4) +
+  scale_fill_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Densità dello Score per Sentiment") +
+  theme_light() +
+  labs(fill = "Sentiment", x = "Score", y = "Densità")
+```
+
+Osserviamo come cambia se invece utilizziamo una trasformata *Box-Cox* per mitigare la variabilità dei dati
+
+```{r, fig.height=5, include=FALSE}
+lambdaNeg <- df %>% filter(sentiment=="neg") %>% select(score) %>% BoxCox.lambda()
+lambdaNeu <- df %>% filter(sentiment=="neu") %>% select(score) %>% BoxCox.lambda()
+lambdaPos <- df %>% filter(sentiment=="pos") %>% select(score) %>% BoxCox.lambda()
+#sono tutti uguali
+
+ggplot(df, aes(x = tweetcreatedts, y = BoxCox(score, lambdaNeg), color = sentiment)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Time series della variabile <Score> post Box-Cox Trasformation")+
+  facet_wrap(~sentiment, scales = "free", ncol = 1)+
+  theme_light()
+```
+
+Sembrerebbe cambiare molto poco quindi continueremo l'analisi usando la serie originali.
+
+## Analisi della *Stazionarietà* e *Autocorrelazione* delle serie storiche
+
+Sicuramente le serie non presentano forti Trend, né tantomeno forte Periodicità o Ciclicità dei dati. Per come si distribuiscono le serie molto probabilmente seguono una distribuzione **White Noise** e di **stazionarietà** rimanendo stabili intorno alla media e con la stessa variabilità nel tempo.
+
+Per poter verificare ciò, utilizzeremo due test di ipotesi:
+
+1.  **Test di Ljung-Box**
+
+    -   *Scopo*: Verificare **l'autocorrelazione** residua in una serie temporale
+
+    -   *Ipotesi nulla (H₀)*: Non vi è autocorrelazione fino a un certo lag -\> *white noise*
+
+    -   *Ipotesi alternativa (H₁)*: Vi è autocorrelazione fino a un certo lag
+
+    -   Conclusione:
+
+        -   Un *p-value* piccolo (\< 0.05) suggerisce di rifiutare H₀, indicando che c'è autocorrelazione significativa.
+
+        -   Un *p-value* grande indica che non ci sono evidenze di autocorrelazione.
+
+2.  **Kwiatkowski-phillips-Schmidt-Shin (KPSS) Test**
+
+    -   *Scopo*: Verificare se una serie temporale è **stazionaria**.
+
+    -   *Ipotesi nulla (H₀)*: La serie è stazionaria.
+
+    -   *Ipotesi alternativa (H₁)*: La serie non è stazionaria
+
+    -   Conclusione:
+
+        -   Un *p-value* piccolo (ad esempio, \< 0.05) suggerisce di rifiutare H₀, quindi la serie non è stazionaria e potrebbe necessitare differenziazione.
+
+        -   Un *p-value* grande non permette di rifiutare H₀, suggerendo che la serie è stazionaria.
+
+Per la serie storica dello score negativo:
+
+```{r, include=FALSE}
+# estraiamo le time series
+negTS <- df %>% filter(sentiment=="neg") %>% select(score, tweetcreatedts)
+neuTS <- df %>% filter(sentiment=="neu") %>% select(score, tweetcreatedts)
+posTS <- df %>% filter(sentiment=="pos") %>% select(score, tweetcreatedts)
+# test per la serie dello score - Neg
+Box.test(negTS$score, lag = 10, type = "Ljung-Box")
+negTS %>% select(score) %>% as.ts() %>% ur.kpss() %>% summary()
+# test per la serie dello score - Neu
+Box.test(neuTS$score, lag = 10, type = "Ljung-Box")
+neuTS %>% select(score) %>% as.ts() %>% ur.kpss() %>% summary()
+# test per la serie dello score - Pos
+Box.test(posTS$score, lag = 10, type = "Ljung-Box")
+posTS %>% select(score) %>% as.ts() %>% ur.kpss() %>% summary()
+```
+
++---------------+----------------------------+---------------------------+
+| Score         | KPSS Test                  | Ljung-Box Test            |
++:=============:+:==========================:+:=========================:+
+| Negativo      | ```                        | ```                       |
+|               | test-statistic is: 73.8069 | p-value < 2.2e-16         |
+|               | ```                        | ```                       |
+|               |                            |                           |
+|               | Non stazionario            | Autocorrelazione presente |
++---------------+----------------------------+---------------------------+
+| Neutrale      | ```                        | ```                       |
+|               | test-statistic is: 17.6576 | p-value < 2.2e-16         |
+|               | ```                        | ```                       |
+|               |                            |                           |
+|               | Non stazionario            | Autocorrelazione presente |
++---------------+----------------------------+---------------------------+
+| Positivo      | ```                        | ```                       |
+|               | test-statistic is: 34.624  | p-value < 2.2e-16         |
+|               | ```                        | ```                       |
+|               |                            |                           |
+|               | Non stazionario            | Autocorrelazione presente |
++---------------+----------------------------+---------------------------+
+
+Dai risultati del test si evince che le serie **non sono stazionarie** e non seguono una distribuzione white noise quindi **presentano autocorrelazione** nei ritardi definiti. Questo risultato potrebbe sembrare correlato ma ricordiamo che *autocorrelazione non implica non-stazionarietà* così e viceversa in quanto la stazionarietà riguarda proprietà generali della serie nel tempo, mentre il test di Ljung-Box per l'autocorrelazione si concentra su pattern di dipendenza temporale osservando sotto-intervalli di lag.
+
+Osserviamo se questa struttura della serie persiste anche se diminuiamo la frequenza di osservazione dei dati. In particolare concentriamoci nell'analizzare le serie a frequenze di 10 minuti, 30 minuti e 1 ora.
+
+### Analisi con frequenza di **10 minuti**:
+
+```{r, include=FALSE}
+##### visualizzazione ts aggregate per 10 minuti #####
+negTS <- xts(negTS$score, order.by = negTS$tweetcreatedts)
+neuTS <- xts(neuTS$score, order.by = neuTS$tweetcreatedts)
+posTS <- xts(posTS$score, order.by = posTS$tweetcreatedts)
+# aggreghiamo i dati ad una frequenza di osservazione del dato di 10 minuti
+score10neg <- aggregateTS(negTS, alignBy = "minutes", alignPeriod = 10)
+score10neu <- aggregateTS(neuTS, alignBy = "minutes", alignPeriod = 10)
+score10pos <- aggregateTS(posTS, alignBy = "minutes", alignPeriod = 10)
+
+dfTS10 <- data.frame(
+  time = index(score10neg),
+  neg = as.numeric(score10neg),
+  neu = as.numeric(score10neu),
+  pos = as.numeric(score10pos)
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+# Creazione del dataset per il sentiment predominante
+predominant_sentiment <- data.frame(
+  time = index(score10neg),
+  neg = as.numeric(score10neg),
+  neu = as.numeric(score10neu),
+  pos = as.numeric(score10pos)
+) %>%
+  rowwise() %>%
+  mutate(
+    predominant = c("neg", "neu", "pos")[which.max(c(neg, neu, pos))],
+    score = max(c(neg, neu, pos), na.rm = TRUE)
+  ) %>%
+  select(time, predominant, score)
+
+# Calcolo delle frequenze di ciascun sentimento nel tempo
+sentiment_frequencies <- predominant_sentiment %>%
+  group_by(predominant) %>%
+  summarise(frequency = n())
+
+# Calcolo delle serie delle derivate prime
+deriv_neg10 <- diff(score10neg) / diff(index(score10neg))
+deriv_neu10 <- diff(score10neu) / diff(index(score10neu))
+deriv_pos10 <- diff(score10pos) / diff(index(score10pos))
+
+# Creazione del data frame per il plotting
+df_deriv10 <- data.frame(
+  time = index(deriv_neg10),
+  neg = as.numeric(deriv_neg10),
+  neu = as.numeric(deriv_neu10),
+  pos = as.numeric(deriv_pos10)
+) %>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "Derivative")
+
+# Calcolo dell'indice di polarizzazione
+polarization_index <- data.frame(
+  time = index(score10neg),
+  neg = as.numeric(score10neg),
+  neu = as.numeric(score10neu),
+  pos = as.numeric(score10pos)
+) %>%
+  rowwise() %>%
+  mutate(
+    max_score = max(neg, neu, pos, na.rm = TRUE),
+    mean_other = mean(c(neg, neu, pos)[-which.max(c(neg, neu, pos))], na.rm = TRUE),
+    polarization = max_score - mean_other
+  ) %>%
+  select(time, polarization)
+```
+
+```{r}
+#PLOT
+plot <- ggplot(dfTS10, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Serie dello <Score>")+
+  facet_wrap(~Series, scales = "free", ncol = 1)+
+  theme_light() +
+  theme(legend.position = "top")
+
+# plot delle derivate
+plot_derivate <- ggplot(df_deriv10, aes(x = time, y = Derivative, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Serie delle derivate temporali dello <Score>") +
+  facet_wrap(~Series, scales = "free", ncol = 1) +
+  theme_light() +
+  theme(legend.position = "top") +
+  labs(color = "Sentiment", x = "Tempo", y = "Derivata dello Score")
+
+grid.arrange(plot, plot_derivate, ncol = 2)
+
+
+
+
+
+
+# # Creazione della matrice di transizione
+# transition_matrix <- table(predominant_sentiment$predominant[-nrow(predominant_sentiment)],
+#                            predominant_sentiment$predominant[-1])
+# 
+# # Calcolo delle probabilità di transizione
+# transition_probabilities <- prop.table(transition_matrix, 1)
+# 
+# # Visualizzazione della matrice di transizione come heatmap
+# ggplot(as.data.frame(as.table(transition_probabilities)), aes(Var1, Var2, fill = Freq)) +
+#   geom_tile() +
+#   scale_fill_gradient2(low = "white", high = "blue", mid = "red", midpoint = 0.5) +
+#   labs(title = "Matrice di Transizione tra Sentiment", x = "Sentiment Successivo", y = "Sentiment Precedente") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Osserviamo i risultati dei test sull'autocorrelazione e stazionarietà delle serie:
+
+```{r, include=FALSE}
+Box.test(score10neg, lag = 10, type = "Ljung-Box")
+score10neg %>% ur.kpss() %>% summary()
+
+Box.test(score10neu, lag = 10, type = "Ljung-Box")
+score10neu %>% ur.kpss() %>% summary()
+
+Box.test(score10pos, lag = 10, type = "Ljung-Box")
+score10pos %>% ur.kpss() %>% summary()
+
+
+
+### verifica della stazionarietà e autocorrelazione delle serie derivate:
+Box.test(deriv_neg10, lag = 10, type = "Ljung-Box")
+deriv_neg10 %>% as.ts() %>% ur.kpss() %>% summary()
+
+Box.test(deriv_neu10, lag = 10, type = "Ljung-Box")
+deriv_neu10 %>% as.ts() %>% ur.kpss() %>% summary()
+
+Box.test(deriv_pos10, lag = 10, type = "Ljung-Box")
+deriv_pos10 %>% as.ts() %>% ur.kpss() %>% summary()
+```
+
++--------------------------+--------------------------------------+------------------------------+
+|                          | KPSS Test                            | Ljung-Box Test               |
++:========================:+:====================================:+:============================:+
+| **Serie dello Score**    | test-statistic is: **1.6076** (N.S.) | p-value = **0.5361** (N.A.)  |
+|                          |                                      |                              |
+|                          | test-statistic is: **1.0155** (N.S.) | p-value = **3.389e-06** (A.) |
+|                          |                                      |                              |
+|                          | test-statistic is: **1.5981** (N.S.) | p-value = **0.01512** (A.)   |
++--------------------------+--------------------------------------+------------------------------+
+| **Derivata dello Score** | test-statistic is: **0.0111** (S.)   | p-value \< **2.2e-16** (A.)  |
+|                          |                                      |                              |
+|                          | test-statistic is: **0.006** (S.)    | p-value \< **2.2e-16** (A.)  |
+|                          |                                      |                              |
+|                          | test-statistic is: **0.0068** (S.)   | p-value \< **2.2e-16** (A.)  |
++--------------------------+--------------------------------------+------------------------------+
+
+Notiamo che a questa frequenza la statistica test per l'ipotesi di stazionarietà per la serie priva di trasformazioni è scesa di molto ma rimane ancora più grande della soglia critica del 1%. Per quanto riguarda invece la serie delle derivate temporali, queste sono già stazionarie. Mentre a questo livello solo la serie dello score negativa diviene White Noise e perde quindi autocorrelazione nei ritardi.
+
+Osserviamo l'andamento generale dello score a questa frequenza:
+
+```{r, fig.height=5, fig.width=10}
+# Plot del sentiment predominante
+plot_predominant <- ggplot(predominant_sentiment, aes(x = time, y = score, color = predominant)) +
+  geom_point() +  # Usa geom_point per visualizzare ogni massimo
+  geom_line(aes(group = 1)) +  # Connette i punti in ordine temporale
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Sentiment predominante ogni 10 minuti") +
+  theme_light() +
+  theme(legend.position = "top") +
+  labs(color = "Sentiment", x = "Tempo", y = "Score")
+
+# Plot delle frequenze dei sentiment
+plot_frequencies <- ggplot(sentiment_frequencies, aes(x = predominant, y = frequency, fill = predominant)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  theme_light() +
+  theme(legend.position = "top") +
+  labs(fill = "Sentiment", x = "Sentiment", y = "Frequenza")
+
+# # Plot dell'indice di polarizzazione
+# plot_polarizzazione <-ggplot(polarization_index, aes(x = time, y = polarization)) +
+#   geom_line(color = "purple") +
+#   ggtitle("Indice di Polarizzazione dello Score") +
+#   theme_light() +
+#   labs(x = "Tempo", y = "Indice di Polarizzazione")
+
+grid.arrange(plot_predominant, 
+             plot_frequencies,
+             # plot_polarizzazione, 
+             ncol = 1)
+```
+
+### Analisi con frequenza di **30 minuti**:
+
+```{r, include=FALSE}
+##### visualizzazione ts aggregate per 30 minuti #####
+score30neg <- aggregateTS(negTS, alignBy = "minutes", alignPeriod = 30)
+score30neu <- aggregateTS(neuTS, alignBy = "minutes", alignPeriod = 30)
+score30pos <- aggregateTS(posTS, alignBy = "minutes", alignPeriod = 30)
+
+dfTS30 <- data.frame(
+  time = index(score30neg),
+  neg = as.numeric(score30neg),
+  neu = as.numeric(score30neu),
+  pos = as.numeric(score30pos)
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+# Creazione del dataset per il sentiment predominante
+predominant_sentiment <- data.frame(
+  time = index(score30neg),
+  neg = as.numeric(score30neg),
+  neu = as.numeric(score30neu),
+  pos = as.numeric(score30pos)
+) %>%
+  rowwise() %>%
+  mutate(
+    predominant = c("neg", "neu", "pos")[which.max(c(neg, neu, pos))],
+    score = max(c(neg, neu, pos), na.rm = TRUE)
+  ) %>%
+  select(time, predominant, score)
+
+# Calcolo delle frequenze di ciascun sentimento nel tempo
+sentiment_frequencies <- predominant_sentiment %>%
+  group_by(predominant) %>%
+  summarise(frequency = n())
+
+# Calcolo delle derivate
+deriv_neg30 <- diff(score30neg) / diff(index(score30neg))
+deriv_neu30 <- diff(score30neu) / diff(index(score30neu))
+deriv_pos30 <- diff(score30pos) / diff(index(score30pos))
+
+# Creazione del data frame per il plotting
+df_deriv30 <- data.frame(
+  time = index(deriv_neg30),
+  neg = as.numeric(deriv_neg30),
+  neu = as.numeric(deriv_neu30),
+  pos = as.numeric(deriv_pos30)
+) %>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "Derivative")
+
+# Calcolo dell'indice di polarizzazione
+polarization_index <- data.frame(
+  time = index(score30neg),
+  neg = as.numeric(score30neg),
+  neu = as.numeric(score30neu),
+  pos = as.numeric(score30pos)
+) %>%
+  rowwise() %>%
+  mutate(
+    max_score = max(neg, neu, pos, na.rm = TRUE),
+    mean_other = mean(c(neg, neu, pos)[-which.max(c(neg, neu, pos))], na.rm = TRUE),
+    polarization = max_score - mean_other
+  ) %>%
+  select(time, polarization)
+```
+
+```{r}
+plot<-ggplot(dfTS30, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Serie dello <Score>")+
+  facet_wrap(~Series, scales = "free", ncol = 1)+
+  theme_light() +
+  theme(legend.position = "top")
+
+# plot delle derivate
+plot_derivate <- ggplot(df_deriv30, aes(x = time, y = Derivative, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Serie delle derivate temporali dello <Score>") +
+  facet_wrap(~Series, scales = "free", ncol = 1)+
+  theme_light() +
+  theme(legend.position = "top") +
+  labs(color = "Sentiment", x = "Tempo", y = "Derivata dello Score")
+
+grid.arrange(plot, plot_derivate, ncol=2)
+```
+
+Osserviamo i risultati dei test:
+
+```{r, include=FALSE}
+Box.test(score30neg, lag = 10, type = "Ljung-Box")
+score30neg %>% ur.kpss() %>% summary()
+
+Box.test(score30neu, lag = 10, type = "Ljung-Box")
+score30neu %>% ur.kpss() %>% summary()
+
+Box.test(score30pos, lag = 10, type = "Ljung-Box")
+score30pos %>% ur.kpss() %>% summary()
+
+### verifica della stazionarietà e autocorrelazione delle serie derivate:
+Box.test(deriv_neg30, lag = 10, type = "Ljung-Box")
+deriv_neg30 %>% as.ts() %>% ur.kpss() %>% summary()
+
+Box.test(deriv_neu30, lag = 10, type = "Ljung-Box")
+deriv_neu30 %>% as.ts() %>% ur.kpss() %>% summary()
+
+Box.test(deriv_pos30, lag = 10, type = "Ljung-Box")
+deriv_pos30 %>% as.ts() %>% ur.kpss() %>% summary()
+```
+
++--------------------------+--------------------------------------+------------------------------+
+| Score                    | KPSS Test                            | Ljung-Box Test               |
++:========================:+:====================================:+:============================:+
+| **Serie dello Score**    | test-statistic is: **0.7737** (N.S.) | p-value = **0.07077** (N.A.) |
+|                          |                                      |                              |
+|                          | test-statistic is: **0.2137** (S.)   | p-value = **0.0007944** (A.) |
+|                          |                                      |                              |
+|                          | test-statistic is: **0.2168** (S.)   | p-value = **0.357** (N.A.)   |
++--------------------------+--------------------------------------+------------------------------+
+| **Derivate dello Score** | test-statistic is: **0.0111** (S.)   | p-value \< **2.2e-16** (A.)  |
+|                          |                                      |                              |
+|                          | test-statistic is: **0.006** (S.)    | p-value = **3.563e-13** (A.) |
+|                          |                                      |                              |
+|                          | test-statistic is: **0.0068** (S.)   | p-value = **1.984e-12** (A.) |
++--------------------------+--------------------------------------+------------------------------+
+
+```{r, fig.height=5, fig.width=6}
+# Plot del sentiment predominante
+plot_predominant <- ggplot(predominant_sentiment, aes(x = time, y = score, color = predominant)) +
+  geom_point() +  # Usa geom_point per visualizzare ogni massimo
+  geom_line(aes(group = 1)) +  # Connette i punti in ordine temporale
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Sentiment predominante ogni 30 minuti") +
+  theme_light() +
+  theme(legend.position = "top") +
+  labs(color = "Sentiment", x = "Tempo", y = "Score")
+
+# Plot delle frequenze dei sentiment
+plot_frequencies <- ggplot(sentiment_frequencies, aes(x = predominant, y = frequency, fill = predominant)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  theme_light() +
+  theme(legend.position = "top") +
+  labs(fill = "Sentiment", x = "Sentiment", y = "Frequenza")
+
+# # Plot dell'indice di polarizzazione
+# plot_polarizzazione <-ggplot(polarization_index, aes(x = time, y = polarization)) +
+#   geom_line(color = "purple") +
+#   ggtitle("Indice di Polarizzazione dello Score") +
+#   theme_light() +
+#   labs(x = "Tempo", y = "Indice di Polarizzazione")
+
+grid.arrange(plot_predominant, 
+             plot_frequencies,
+             # plot_polarizzazione, 
+             ncol = 1)
+```
+
+### Analisi con frequenza di **1 ora**:
+
+```{r}
+##### visualizzazione ts aggregate per 1 ora #####
+score1hneg <- aggregateTS(negTS, alignBy = "hours", alignPeriod = 1)
+score1hneu <- aggregateTS(neuTS, alignBy = "hours", alignPeriod = 1)
+score1hpos <- aggregateTS(posTS, alignBy = "hours", alignPeriod = 1)
+
+dfTS1h <- data.frame(
+  time = index(score1hneg),
+  neg = as.numeric(score1hneg),
+  neu = as.numeric(score1hneu),
+  pos = as.numeric(score1hpos)
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+# Creazione del dataset per il sentiment predominante
+predominant_sentiment <- data.frame(
+  time = index(score1hneg),
+  neg = as.numeric(score1hneg),
+  neu = as.numeric(score1hneu),
+  pos = as.numeric(score1hpos)
+) %>%
+  rowwise() %>%
+  mutate(
+    predominant = c("neg", "neu", "pos")[which.max(c(neg, neu, pos))],
+    score = max(c(neg, neu, pos), na.rm = TRUE)
+  ) %>%
+  select(time, predominant, score)
+
+# Calcolo delle frequenze di ciascun sentimento nel tempo
+sentiment_frequencies <- predominant_sentiment %>%
+  group_by(predominant) %>%
+  summarise(frequency = n())
+
+# Calcolo delle derivate
+deriv_neg1h <- diff(score1hneg) / diff(index(score1hneg))
+deriv_neu1h <- diff(score1hneu) / diff(index(score1hneu))
+deriv_pos1h <- diff(score1hpos) / diff(index(score1hpos))
+
+# Creazione del data frame per il plotting
+df_deriv1h <- data.frame(
+  time = index(deriv_neg1h),
+  neg = as.numeric(deriv_neg1h),
+  neu = as.numeric(deriv_neu1h),
+  pos = as.numeric(deriv_pos1h)
+) %>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "Derivative")
+
+# Calcolo dell'indice di polarizzazione
+polarization_index <- data.frame(
+  time = index(score1hneg),
+  neg = as.numeric(score1hneg),
+  neu = as.numeric(score1hneu),
+  pos = as.numeric(score1hpos)
+) %>%
+  rowwise() %>%
+  mutate(
+    max_score = max(neg, neu, pos, na.rm = TRUE),
+    mean_other = mean(c(neg, neu, pos)[-which.max(c(neg, neu, pos))], na.rm = TRUE),
+    polarization = max_score - mean_other
+  ) %>%
+  select(time, polarization)
+```
+
+```{r}
+plot<-ggplot(dfTS1h, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Serie dello <Score>")+
+  facet_wrap(~Series, scales = "free", ncol = 1)+
+  theme_light() +
+  theme(legend.position = "top")
+# plot delle derivate
+plot_derivate <- ggplot(df_deriv1h, aes(x = time, y = Derivative, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Serie delle derivate temporali dello <Score>") +
+  facet_wrap(~Series, scales = "free", ncol = 1)+
+  theme_light() +
+  theme(legend.position = "top") +
+  labs(color = "Sentiment", x = "Tempo", y = "Derivata dello Score")
+
+grid.arrange(plot, plot_derivate, ncol=2)
+```
+
+Osserviamo i risultati dei test:
+
+```{r, include=FALSE}
+Box.test(score1hneg, lag = 10, type = "Ljung-Box")
+score1hneg %>% ur.kpss() %>% summary()
+
+Box.test(score1hneu, lag = 10, type = "Ljung-Box")
+score1hneu %>% ur.kpss() %>% summary()
+
+Box.test(score1hpos, lag = 10, type = "Ljung-Box")
+score1hpos %>% ur.kpss() %>% summary()
+
+### verifica della stazionarietà e autocorrelazione delle serie derivate:
+Box.test(deriv_neg1h, lag = 10, type = "Ljung-Box")
+deriv_neg1h %>% as.ts() %>% ur.kpss() %>% summary()
+
+Box.test(deriv_neu1h, lag = 10, type = "Ljung-Box")
+deriv_neu1h %>% as.ts() %>% ur.kpss() %>% summary()
+
+Box.test(deriv_pos1h, lag = 10, type = "Ljung-Box")
+deriv_pos1h %>% as.ts() %>% ur.kpss() %>% summary()
+```
+
++--------------------------+------------------------------------+------------------------------+
+| Score                    | KPSS Test                          | Ljung-Box Test               |
++:========================:+:==================================:+:============================:+
+| **Serie dello Score**    | test-statistic is: **0.3793** (S.) | p-value = **0.1761** (N.A.)  |
+|                          |                                    |                              |
+|                          | test-statistic is: **0.1504** (S.) | p-value = **0.09925** (N.A.) |
+|                          |                                    |                              |
+|                          | test-statistic is: **0.1444** (S.) | p-value = **0.4608** (N.A.)  |
++--------------------------+------------------------------------+------------------------------+
+| **Derivate dello Score** | test-statistic is: **0.0111** (S.) | p-value = **2.32e-05** (A.)  |
+|                          |                                    |                              |
+|                          | test-statistic is: **0.006** (S.)  | p-value = **4.77e-06** (A.)  |
+|                          |                                    |                              |
+|                          | test-statistic is: **0.0068** (S.) | p-value = **1.427e-11** (A.) |
++--------------------------+------------------------------------+------------------------------+
+
+```{r, fig.height=5, fig.width=6}
+# Plot del sentiment predominante
+plot_predominant <- ggplot(predominant_sentiment, aes(x = time, y = score, color = predominant)) +
+  geom_point() +  # Usa geom_point per visualizzare ogni massimo
+  geom_line(aes(group = 1)) +  # Connette i punti in ordine temporale
+  scale_color_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  ggtitle("Sentiment predominante ogni ora") +
+  theme_light() +
+  theme(legend.position = "top") +
+  labs(color = "Sentiment", x = "Tempo", y = "Score")
+
+# Plot delle frequenze dei sentiment
+plot_frequencies <- ggplot(sentiment_frequencies, aes(x = predominant, y = frequency, fill = predominant)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("neg" = "darkred", "neu" = "darkblue", "pos" = "darkgreen")) +
+  theme_light() +
+  theme(legend.position = "top") +
+  labs(fill = "Sentiment", x = "Sentiment", y = "Frequenza")
+
+# # Plot dell'indice di polarizzazione
+# plot_polarizzazione <-ggplot(polarization_index, aes(x = time, y = polarization)) +
+#   geom_line(color = "purple") +
+#   ggtitle("Indice di Polarizzazione dello Score") +
+#   theme_light() +
+#   labs(x = "Tempo", y = "Indice di Polarizzazione")
+
+grid.arrange(plot_predominant, 
+             plot_frequencies, 
+             # plot_polarizzazione, 
+             ncol = 1)
+```
+
+#### Riflessioni
+
+Per quanto riguarda la serie dello Score, quello che si osserva è che man mano che aggreghiamo i dati ad una frequenza più bassa le serie tendono ad assumere distribuzione *white noise* così come anche la stazionarietà viene raggiunta da tutte le serie all'ultima frequenza. Invece le serie delle derivate temporali hanno sempre mostrato le medesime caratteristiche ossia stazionarietà e autocorrelazione a qualsiasi livello di frequenza si stessero osservando.
+
+## Costruzione dei Modelli Statistici
+
+### Non-seasonal ARIMA models
+
+ARIMA è l'acronimo di AutoRegressive Integrated Moving Avarage, mette insieme il concetto della differenziazione con i modelli autoregressivi e media mobile.
+
+$$
+y'_{t} = c + \phi_{1}y'_{t-1} + \dots + \phi_{p}y'_{t-p} + \theta_{1}\varepsilon_{t-1} + \dots + \theta_{p}\varepsilon_{t-p}
+$$
+
+In *backshift-notation* diventa:
+
+$$
+(1 - \phi_{1}B - \dots - \phi_{p}B^{p})(1-B)^{d}y_{t} = c + (1+\theta_{1}B+\dots+\theta_{q}B^{q})\varepsilon_{t}
+$$
+
+Dove $y'_{t}$ è la serie differenziata (anche più di una volta), mentre i predittori sono i *lag* della serie e i *lag-errors* sempre della serie. Questa struttura prende il nome di **ARIMA(p, d, q)** **Model** dove
+
+-   *p* = ordine della parte autoregressiva
+-   *d* = gradi di differenziazione
+-   *q* = ordine della media mobile
+
+Molti modelli fra i più conosciuti sono solo un caso specifico del modello ARIMA(p, d, q) infatti
+
+-   White Noise = ARIMA(0, 0 , 0)
+
+-   Random Walk = ARIMA(0, 1, 0)
+
+-   Autoregressione = ARIMA(p, 0, 0)
+
+-   Media Mobile = ARIMA(0, 0 , q)
+
+Stimiamo un modello ARIMA(p, d, q) per le singole serie dello score e delle derivate temporali dello score.
+
+```{r}
+arima_summary <- function(model, name) {
+  tibble(
+    Serie = name,
+    ARIMA = paste0("(", model$arma[1], ",", model$arma[6], ",", model$arma[2], ")"),
+    AIC = model$aic,
+    AICc = model$aicc,
+    BIC = model$bic
+  )
+}
+```
+
+```{r, include=FALSE}
+## 10 minuti ##
+fitNEG10 <- auto.arima(score10neg, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitNEU10 <- auto.arima(score10neu, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitPOS10 <- auto.arima(score10pos, seasonal = FALSE, 
+                     stepwise = FALSE, 
+                     approximation = FALSE)
+
+## 30 minuti ##
+fitNEG30 <- auto.arima(score30neg, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitNEU30 <- auto.arima(score30neu, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitPOS30 <- auto.arima(score30pos, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+## 1h ##
+fitNEG1h <- auto.arima(score1hneg, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitNEU1h <- auto.arima(score1hneu, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitPOS1h <- auto.arima(score1hpos, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+results <- bind_rows(
+  arima_summary(fitNEG10, "10min_NEG"),
+  arima_summary(fitNEU10, "10min_NEU"),
+  arima_summary(fitPOS10, "10min_POS"),
+  arima_summary(fitNEG30, "30min_NEG"),
+  arima_summary(fitNEU30, "30min_NEU"),
+  arima_summary(fitPOS30, "30min_POS"),
+  arima_summary(fitNEG1h, "1h_NEG"),
+  arima_summary(fitNEU1h, "1h_NEU"),
+  arima_summary(fitPOS1h, "1h_POS")
+)
+
+#### SERIE DELLE DERIVATE TEMPORALI ####
+## 10 minuti ##
+fitNEG10d <- auto.arima(deriv_neg10, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitNEU10d <- auto.arima(deriv_neu10, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitPOS10d <- auto.arima(deriv_pos10, seasonal = FALSE, 
+                     stepwise = FALSE, 
+                     approximation = FALSE)
+
+## 30 minuti ##
+fitNEG30d <- auto.arima(deriv_neg30, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitNEU30d <- auto.arima(deriv_neu30, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitPOS30d <- auto.arima(deriv_pos30, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+## 1h ##
+fitNEG1hd <- auto.arima(deriv_neg1h, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitNEU1hd <- auto.arima(deriv_neu1h, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+fitPOS1hd <- auto.arima(deriv_pos1h, seasonal = FALSE, stepwise = FALSE, 
+                     approximation = FALSE)
+
+resultsd <- bind_rows(
+  arima_summary(fitNEG10d, "10min_NEG"),
+  arima_summary(fitNEU10d, "10min_NEU"),
+  arima_summary(fitPOS10d, "10min_POS"),
+  arima_summary(fitNEG30d, "30min_NEG"),
+  arima_summary(fitNEU30d, "30min_NEU"),
+  arima_summary(fitPOS30d, "30min_POS"),
+  arima_summary(fitNEG1hd, "1h_NEG"),
+  arima_summary(fitNEU1hd, "1h_NEU"),
+  arima_summary(fitPOS1hd, "1h_POS")
+)
+
+print(results)
+print(resultsd)
+```
+
+```{r}
+r10 <- bind_rows(
+  arima_summary(fitNEG10, "10min_NEG"),
+  arima_summary(fitNEU10, "10min_NEU"),
+  arima_summary(fitPOS10, "10min_POS"),
+  arima_summary(fitNEG10d, "10min_NEG_Deriv"),
+  arima_summary(fitNEU10d, "10min_NEU_Deriv"),
+  arima_summary(fitPOS10d, "10min_POS_Deriv")
+)
+r30 <- bind_rows(
+  arima_summary(fitNEG30, "30min_NEG"),
+  arima_summary(fitNEU30, "30min_NEU"),
+  arima_summary(fitPOS30, "30min_POS"),
+  arima_summary(fitNEG30d, "30min_NEG_Deriv"),
+  arima_summary(fitNEU30d, "30min_NEU_Deriv"),
+  arima_summary(fitPOS30d, "30min_POS_Deriv")
+)
+r1h <- bind_rows(
+  arima_summary(fitNEG1h, "1h_NEG"),
+  arima_summary(fitNEU1h, "1h_NEU"),
+  arima_summary(fitPOS1h, "1h_POS"),
+  arima_summary(fitNEG1hd, "1h_NEG_Deriv"),
+  arima_summary(fitNEU1hd, "1h_NEU_Deriv"),
+  arima_summary(fitPOS1hd, "1h_POS_Deriv")
+)
+
+print(r10)
+print(r30)
+print(r1h)
+```
+
+#### Serie storica dello Score
+
+Osserviamo come i modelli ARIMA hanno fittato sui dati:
+
+-   **Frequenza di 10 minuti**
+
+```{r, fig.height=8}
+## 10 minuti ##
+#fitNEG10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df10NEG <- data.frame(
+  time = index(score10neg),
+  neg = as.numeric(score10neg),
+  fittedNEG = as.numeric(fitted(fitNEG10))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(df10NEG, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "fittedNEG" = "darkred")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+#fitNEU10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df10NEU <- data.frame(
+  time = index(score10neu),
+  neu = as.numeric(score10neu),
+  fittedNEU = as.numeric(fitted(fitNEU10))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(df10NEU, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "fittedNEU" = "darkblue")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+#fitPOS10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df10POS <- data.frame(
+  time = index(score10pos),
+  pos = as.numeric(score10pos),
+  fittedPOS = as.numeric(fitted(fitPOS10))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(df10POS, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "fittedPOS" = "darkgreen")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
+-   **Frequenza di 30 minuti**
+
+```{r, fig.height=8}
+## 30 minuti ##
+#fitNEG30 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df30NEG <- data.frame(
+  time = index(score30neg),
+  neg = as.numeric(score30neg),
+  fittedNEG = as.numeric(fitted(fitNEG30))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(df30NEG, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "fittedNEG" = "darkred")) +
+  ggtitle("ARIMA(0,1,4)")+
+  theme_light()
+
+#fitNEU30 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df30NEU <- data.frame(
+  time = index(score30neu),
+  neu = as.numeric(score30neu),
+  fittedNEU = as.numeric(fitted(fitNEU30))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(df30NEU, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "fittedNEU" = "darkblue")) +
+  ggtitle("ARIMA(1,0,1) with non-zero mean ")+
+  theme_light()
+
+#fitPOS30 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df30POS <- data.frame(
+  time = index(score30pos),
+  pos = as.numeric(score30pos),
+  fittedPOS = as.numeric(fitted(fitPOS30))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(df30POS, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "fittedPOS" = "darkgreen")) +
+  ggtitle("ARIMA(1,0,0) with non-zero mean ")+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
+-   **Frequenza di 1 ora**
+
+```{r, fig.height=8}
+## 1h ##
+#fitNEG1h %>% forecast(h=12) %>% autoplot()+theme_light()
+df1hNEG <- data.frame(
+  time = index(score1hneg),
+  neg = as.numeric(score1hneg),
+  fittedNEG = as.numeric(fitted(fitNEG1h))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(df1hNEG, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "fittedNEG" = "darkred")) +
+  ggtitle("ARIMA(1,0,1) with non-zero mean")+
+  theme_light()
+
+#fitNEU1h %>% forecast(h=12) %>% autoplot()+theme_light()
+df1hNEU <- data.frame(
+  time = index(score1hneu),
+  neu = as.numeric(score1hneu),
+  fittedNEU = as.numeric(fitted(fitNEU1h))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(df1hNEU, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "fittedNEU" = "darkblue")) +
+  ggtitle("ARIMA(1,0,1) with non-zero mean")+
+  theme_light()
+
+#fitPOS1h %>% forecast(h=12) %>% autoplot()+theme_light()
+df1hPOS <- data.frame(
+  time = index(score1hpos),
+  pos = as.numeric(score1hpos),
+  fittedPOS = as.numeric(fitted(fitPOS1h))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(df1hPOS, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "fittedPOS" = "darkgreen")) +
+  ggtitle("ARIMA(2,0,0) with non-zero mean")+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
+#### Serie storiche delle derivate temporali dello Score
+
+-   **Frequenza di 10 minuti**
+
+```{r, fig.height=8}
+## 10 minuti ##
+#fitNEG10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df10NEGd <- data.frame(
+  time = index(deriv_neg10[2:length(deriv_neg10)]),
+  neg = as.numeric(deriv_neg10[2:length(deriv_neg10)]),
+  fittedNEG = as.numeric(fitted(fitNEG10d))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(df10NEGd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "fittedNEG" = "darkred")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+#fitNEU10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df10NEUd <- data.frame(
+  time = index(deriv_neu10[2:length(deriv_neu10)]),
+  neu = as.numeric(deriv_neu10[2:length(deriv_neu10)]),
+  fittedNEU = as.numeric(fitted(fitNEU10d))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(df10NEUd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "fittedNEU" = "darkblue")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+#fitPOS10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df10POSd <- data.frame(
+  time = index(deriv_pos10[2:length(deriv_pos10)]),
+  pos = as.numeric(deriv_pos10[2:length(deriv_pos10)]),
+  fittedPOS = as.numeric(fitted(fitPOS10d))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(df10POSd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "fittedPOS" = "darkgreen")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
+-   **Frequenza di 30 minuti**
+
+```{r, fig.height=8}
+## 30 minuti ##
+#fitNEG10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df30NEGd <- data.frame(
+  time = index(deriv_neg30[2:length(deriv_neg30)]),
+  neg = as.numeric(deriv_neg30[2:length(deriv_neg30)]),
+  fittedNEG = as.numeric(fitted(fitNEG30d))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(df30NEGd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "fittedNEG" = "darkred")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+#fitNEU10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df30NEUd <- data.frame(
+  time = index(deriv_neu30[2:length(deriv_neu30)]),
+  neu = as.numeric(deriv_neu30[2:length(deriv_neu30)]),
+  fittedNEU = as.numeric(fitted(fitNEU30d))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(df30NEUd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "fittedNEU" = "darkblue")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+#fitPOS10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df30POSd <- data.frame(
+  time = index(deriv_pos30[2:length(deriv_pos30)]),
+  pos = as.numeric(deriv_pos30[2:length(deriv_pos30)]),
+  fittedPOS = as.numeric(fitted(fitPOS30d))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(df30POSd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "fittedPOS" = "darkgreen")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
+-   **Frequenza di 1 ora**
+
+```{r, fig.height=8}
+## 1 ora ##
+#fitNEG10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df1hNEGd <- data.frame(
+  time = index(deriv_neg1h[2:length(deriv_neg1h)]),
+  neg = as.numeric(deriv_neg1h[2:length(deriv_neg1h)]),
+  fittedNEG = as.numeric(fitted(fitNEG1hd))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(df1hNEGd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "fittedNEG" = "darkred")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+#fitNEU10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df1hNEUd <- data.frame(
+  time = index(deriv_neu1h[2:length(deriv_neu1h)]),
+  neu = as.numeric(deriv_neu1h[2:length(deriv_neu1h)]),
+  fittedNEU = as.numeric(fitted(fitNEU1hd))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(df1hNEUd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "fittedNEU" = "darkblue")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+#fitPOS10 %>% forecast(h=12) %>% autoplot(include=100)+theme_light()
+df1hPOSd <- data.frame(
+  time = index(deriv_pos1h[2:length(deriv_pos1h)]),
+  pos = as.numeric(deriv_pos1h[2:length(deriv_pos1h)]),
+  fittedPOS = as.numeric(fitted(fitPOS1hd))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(df1hPOSd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "fittedPOS" = "darkgreen")) +
+  ggtitle("ARIMA(0,1,1)")+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
+### Auto-Regressive Neural Network
+
+Spiegazione modello
+
+#### Serie storiche dello Score
+
+-   **Frequenza di 10 minuti**
+
+```{r, fig.height=8}
+nn10neg <- nnetar(score10neg)
+nn10negDF <- data.frame(
+  time = index(score10neg),
+  neg = as.numeric(score10neg),
+  NNAR = as.numeric(fitted(nn10neg))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(nn10negDF, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "NNAR" = "darkred")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn10neu <- nnetar(score10neu)
+nn10neuDF <- data.frame(
+  time = index(score10neu),
+  neu = as.numeric(score10neu),
+  NNAR = as.numeric(fitted(nn10neu))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(nn10neuDF, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "NNAR" = "darkblue")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn10pos <- nnetar(score10pos)
+nn10posDF <- data.frame(
+  time = index(score10pos),
+  pos = as.numeric(score10pos),
+  NNAR = as.numeric(fitted(nn10pos))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(nn10posDF, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "NNAR" = "darkgreen")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+-   **Frequenza di 30 minuti**
+
+```{r, fig.height=8}
+nn30neg <- nnetar(score30neg)
+nn30negDF <- data.frame(
+  time = index(score30neg),
+  neg = as.numeric(score30neg),
+  NNAR = as.numeric(fitted(nn30neg))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(nn30negDF, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "NNAR" = "darkred")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn30neu <- nnetar(score30neu)
+nn30neuDF <- data.frame(
+  time = index(score30neu),
+  neu = as.numeric(score30neu),
+  NNAR = as.numeric(fitted(nn30neu))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(nn30neuDF, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "NNAR" = "darkblue")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn30pos <- nnetar(score30pos)
+nn30posDF <- data.frame(
+  time = index(score30pos),
+  pos = as.numeric(score30pos),
+  NNAR = as.numeric(fitted(nn30pos))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(nn30posDF, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "NNAR" = "darkgreen")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+-   **Frequenza di 1 ora**
+
+```{r, fig.height=8}
+nn1hneg <- nnetar(score1hneg)
+nn1hnegDF <- data.frame(
+  time = index(score1hneg),
+  neg = as.numeric(score1hneg),
+  NNAR = as.numeric(fitted(nn1hneg))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(nn1hnegDF, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "NNAR" = "darkred")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn1hneu <- nnetar(score1hneu)
+nn1hneuDF <- data.frame(
+  time = index(score1hneu),
+  neu = as.numeric(score1hneu),
+  NNAR = as.numeric(fitted(nn1hneu))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(nn1hneuDF, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "NNAR" = "darkblue")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn1hpos <- nnetar(score1hpos)
+nn1hposDF <- data.frame(
+  time = index(score1hpos),
+  pos = as.numeric(score1hpos),
+  NNAR = as.numeric(fitted(nn1hpos))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(nn1hposDF, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "NNAR" = "darkgreen")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+#### Serie storiche delle derivate temporali dello Score
+
+-   **Frequenza di 10 minuti**
+
+```{r, fig.height=8}
+nn10negd <- nnetar(deriv_neg10)
+nn10negDFd <- data.frame(
+  time = index(deriv_neg10),
+  neg = as.numeric(deriv_neg10),
+  NNAR = as.numeric(fitted(nn10negd))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(nn10negDFd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "NNAR" = "darkred")) +
+  ggtitle("NNAR")+
+  theme_light()
+# autoplot(forecast(nn10negd, PI=TRUE, h=10), include=100)
+
+nn10neud <- nnetar(deriv_neu10)
+nn10neuDFd <- data.frame(
+  time = index(deriv_neu10),
+  neu = as.numeric(deriv_neu10),
+  NNAR = as.numeric(fitted(nn10neud))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(nn10neuDFd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "NNAR" = "darkblue")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn10posd <- nnetar(deriv_pos10)
+nn10posDFd <- data.frame(
+  time = index(deriv_pos10),
+  pos = as.numeric(deriv_pos10),
+  NNAR = as.numeric(fitted(nn10posd))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(nn10posDFd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "NNAR" = "darkgreen")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+-   **Frequenza di 30 minuti**
+
+```{r, fig.height=8}
+nn30negd <- nnetar(deriv_neg30)
+nn30negDFd <- data.frame(
+  time = index(deriv_neg30),
+  neg = as.numeric(deriv_neg30),
+  NNAR = as.numeric(fitted(nn30negd))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(nn30negDFd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "NNAR" = "darkred")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn30neud <- nnetar(deriv_neu30)
+nn30neuDFd <- data.frame(
+  time = index(deriv_neu30),
+  neu = as.numeric(deriv_neu30),
+  NNAR = as.numeric(fitted(nn30neud))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(nn30neuDFd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "NNAR" = "darkblue")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn30posd <- nnetar(deriv_pos30)
+nn30posDFd <- data.frame(
+  time = index(deriv_pos30),
+  pos = as.numeric(deriv_pos30),
+  NNAR = as.numeric(fitted(nn30posd))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(nn30posDFd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "NNAR" = "darkgreen")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+-   **Frequenza di 1 ora**
+
+```{r, fig.height=8}
+nn1hnegd <- nnetar(deriv_neg1h)
+nn1hnegDFd <- data.frame(
+  time = index(deriv_neg1h),
+  neg = as.numeric(deriv_neg1h),
+  NNAR = as.numeric(fitted(nn1hnegd))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p1<-ggplot(nn1hnegDFd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neg" = "grey70", "NNAR" = "darkred")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn1hneud <- nnetar(deriv_neu1h)
+nn1hneuDFd <- data.frame(
+  time = index(deriv_neu1h),
+  neu = as.numeric(deriv_neu1h),
+  NNAR = as.numeric(fitted(nn1hneud))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p2<-ggplot(nn1hneuDFd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("neu" = "grey70", "NNAR" = "darkblue")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+nn1hposd <- nnetar(deriv_pos1h)
+nn1hposDFd <- data.frame(
+  time = index(deriv_pos1h),
+  pos = as.numeric(deriv_pos1h),
+  NNAR = as.numeric(fitted(nn1hposd))
+)%>%
+  reshape2::melt(id.vars = "time", variable.name = "Series", value.name = "value")
+
+p3<-ggplot(nn1hposDFd, aes(x = time, y = value, color = Series)) +
+  geom_line() +
+  scale_color_manual(values = c("pos" = "grey70", "NNAR" = "darkgreen")) +
+  ggtitle("NNAR")+
+  theme_light()
+#autoplot(forecast(nn10neg, PI=TRUE, h=10))
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+## Valutazione Modelli Statistici
+
+Per valutare i modelli sulle time series useremo un approccio ibrido Cross-Validation e Train-Test Split. Questo approccio misto combina i vantaggi del **train-test split** e della **cross-validation temporale** per ottenere una valutazione più completa e affidabile delle prestazioni dei modelli. La suddivisione della serie temporale in un **training set** e un **test set** consente di simulare scenari reali, valutando la capacità del modello di generalizzare su dati mai visti, con particolare attenzione alle previsioni a lungo termine. All’interno del training set, l’utilizzo della **cross-validation con finestra mobile** (tsCV) permette di testare il modello su sottoinsiemi progressivi dei dati, identificando eventuali problemi di overfitting e ottimizzando i parametri per migliorare le previsioni a breve termine.
+
+### Evaluation dei modelli per le serie storiche dello Score
+
+```{r, include=FALSE}
+# Elenco delle tue serie storiche
+score_list <- list(
+  score10neg = score10neg,
+  score10neu = score10neu,
+  score10pos = score10pos,
+  score30neg = score30neg,
+  score30neu = score30neu,
+  score30pos = score30pos,
+  score1hneg = score1hneg,
+  score1hneu = score1hneu,
+  score1hpos = score1hpos
+)
+
+# Funzione per eseguire il train-test split
+train_test_split <- function(series, test_size) {
+  n <- length(series)
+  train_end <- n - test_size
+  train <- series[1:train_end]
+  test <- series[(train_end + 1):n]
+  return(list(train = train, test = test))
+}
+
+
+# Funzione per calcolare le metriche dagli errori
+calculate_metrics <- function(errors) {
+  rmse <- sqrt(mean(errors^2, na.rm = TRUE))
+  mae <- mean(abs(errors), na.rm = TRUE)
+  return(tibble(RMSE = rmse, MAE = mae))
+}
+
+# Funzione per addestrare un modello e prevedere sul test set
+train_and_forecast <- function(train, test, model_type) {
+  if (model_type == "ARIMA") {
+    fit <- auto.arima(train, seasonal = FALSE, 
+                      stepwise = FALSE, 
+                      approximation = FALSE)
+    forecasted <- forecast(fit, h = length(test))
+  } else if (model_type == "NNETAR") {
+    fit <- nnetar(train)
+    forecasted <- forecast(fit, h = length(test))
+  }
+  errors <- test - forecasted$mean
+  return(calculate_metrics(errors))
+}
+
+# Loop su tutte le serie e modelli
+results_score <- list()
+test_size <- 10  # Numero di punti da riservare al test set
+
+for (series_name in names(score_list)) {
+  series <- score_list[[series_name]]
+  
+  # Train-test split
+  split <- train_test_split(series, test_size)
+  train <- split$train
+  test <- split$test
+  
+  # Previsione sul test set per ARIMA
+  arima_test_metrics <- train_and_forecast(train, test, "ARIMA")
+  arima_test_metrics <- mutate(arima_test_metrics, Serie = series_name, Model = "ARIMA", Stage = "Test Set")
+  
+
+  # Previsione sul test set per NNETAR
+  nnetar_test_metrics <- train_and_forecast(train, test, "NNETAR")
+  nnetar_test_metrics <- mutate(nnetar_test_metrics, Serie = series_name, Model = "NNETAR", Stage = "Test Set")
+  
+  # Aggiungi i risultati
+  results_score[[series_name]] <- bind_rows(arima_test_metrics,nnetar_test_metrics)
+}
+
+# Combina i risultati in un unico tibble
+final_results_score <- bind_rows(results_score)
+
+# Ordina i risultati per serie, modello e stage
+final_results_score <- final_results_score %>%
+  arrange(Serie, Model, Stage)
+```
+
+Osserviamo i risultati ottenuti dai modelli:
+
+```{r}
+# Stampa i risultati
+print(final_results_score)
+```
+
+Osserviamo i migliori modelli sul **Test Set**
+
+```{r}
+best_Score_models <- final_results_score %>%
+  group_by(Serie) %>%
+  slice_min(MAE, with_ties = FALSE) %>%
+  ungroup()
+
+print(best_Score_models)
+```
+
+Osserviamo i plot
+
+```{r, include=FALSE}
+# Funzione per generare previsioni e dati per il plot
+generate_forecast_data <- function(series, test_size, model_type) {
+  split <- train_test_split(series, test_size)
+  train <- split$train
+  test <- split$test
+  
+  if (model_type == "ARIMA") {
+    fit <- auto.arima(train, seasonal = FALSE, 
+                      stepwise = FALSE, 
+                      approximation = FALSE)
+    forecasted <- forecast(fit, h = length(test))
+  } else if (model_type == "NNETAR") {
+    fit <- nnetar(train)
+    forecasted <- forecast(fit, h = length(test))
+  }
+  
+  # Crea un tibble con i dati reali e previsti
+  forecast_data <- tibble(
+    Time = seq_along(series),
+    Value = c(train, test),
+    Prediction = c(rep(NA, length(train)), forecasted$mean),
+    Type = c(rep("Observed", length(train)), rep("Test", length(test)))
+  )
+  
+  return(forecast_data)
+}
+
+# Lista per salvare i dati per il plot
+plot_data_list <- list()
+
+# Genera i dati per le serie con i migliori modelli
+for (row in seq_len(nrow(best_Score_models))) {
+  serie_name <- best_Score_models$Serie[row]
+  model_type <- best_Score_models$Model[row]
+  
+  series <- score_list[[serie_name]]
+  plot_data <- generate_forecast_data(series, test_size, model_type)
+  plot_data <- mutate(plot_data, Serie = serie_name, Model = model_type)
+  
+  plot_data_list[[serie_name]] <- plot_data
+}
+```
+
+```{r}
+# Combina i dati in un unico tibble
+final_plot_data <- bind_rows(plot_data_list) %>%
+  group_by(Serie) %>%
+  filter(Time >= max(Time) - 40) %>%
+  ungroup()
+
+# Plot con ggplot2
+ggplot(final_plot_data, aes(x = Time, y = Value)) +
+  geom_line(aes(color = Type), size = 1.2) + 
+  geom_line(aes(y = Prediction, linetype = "Forecast"), size = 1.1, color = "blue") +
+  facet_wrap(~ Serie + Model, scales = "free") +
+  labs(
+    title = "Previsioni dei Migliori Modelli",
+    x = "Tempo",
+    y = "Valore",
+    color = "Tipo",
+    linetype = "Legenda"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    text = element_text(size = 12)
+  )
+```
+
+### Evaluation dei modelli per serie storiche delle derivate temporali
+
+```{r}
+# Elenco delle tue serie storiche delle derivate
+deriv_list <- list(
+  deriv10neg = deriv_neg10,
+  deriv10neu = deriv_neu10,
+  deriv10pos = deriv_pos10,
+  deriv30neg = deriv_neg30,
+  deriv30neu = deriv_neu30,
+  deriv30pos = deriv_pos30,
+  deriv1hneg = deriv_neg1h,
+  deriv1hneu = deriv_neu1h,
+  deriv1hpos = deriv_pos1h
+)
+
+# Loop su tutte le serie e modelli
+results_deriv <- list()
+test_size <- 10  # Numero di punti da riservare al test set
+
+for (series_name in names(deriv_list)) {
+  series <- deriv_list[[series_name]]
+  
+  # Train-test split
+  split <- train_test_split(series, test_size)
+  train <- split$train
+  test <- split$test
+  
+  
+  # Previsione sul test set per ARIMA
+  arima_test_metrics <- train_and_forecast(train, test, "ARIMA")
+  arima_test_metrics <- mutate(arima_test_metrics, Serie = series_name, Model = "ARIMA", Stage = "Test Set")
+  
+  
+  # Previsione sul test set per NNETAR
+  nnetar_test_metrics <- train_and_forecast(train, test, "NNETAR")
+  nnetar_test_metrics <- mutate(nnetar_test_metrics, Serie = series_name, Model = "NNETAR", Stage = "Test Set")
+  
+  # Aggiungi i risultati
+  results_deriv[[series_name]] <- bind_rows(arima_test_metrics,nnetar_test_metrics)
+}
+
+# Combina i risultati in un unico tibble
+final_results_deriv <- bind_rows(results_deriv)
+
+# Ordina i risultati per serie, modello e stage
+final_results_deriv <- final_results_deriv %>%
+  arrange(Serie, Model, Stage)
+```
+
+```{r}
+print(final_results_deriv)
+```
+
+```{r}
+best_deriv_models <- final_results_deriv %>%
+  group_by(Serie) %>%
+  slice_min(MAE, with_ties = FALSE) %>%
+  ungroup()
+
+print(best_deriv_models)
+```
+
+Osserviamo i plot:
+
+```{r}
+# Lista per salvare i dati per il plot
+plot_data_list2 <- list()
+
+# Genera i dati per le serie con i migliori modelli
+for (row in seq_len(nrow(best_deriv_models))) {
+  serie_name <- best_deriv_models$Serie[row]
+  model_type <- best_deriv_models$Model[row]
+  
+  series <- deriv_list[[serie_name]]
+  plot_data <- generate_forecast_data(series, test_size, model_type)
+  plot_data <- mutate(plot_data, Serie = serie_name, Model = model_type)
+  
+  plot_data_list2[[serie_name]] <- plot_data
+}
+
+# Combina i dati in un unico tibble
+final_plot_data2 <- bind_rows(plot_data_list2) %>%
+  group_by(Serie) %>%
+  filter(Time >= max(Time) - 30) %>%
+  ungroup()
+
+# Plot con ggplot2
+ggplot(final_plot_data2, aes(x = Time, y = Value)) +
+  geom_line(aes(color = Type), size = 1.2) + 
+  geom_line(aes(y = Prediction, linetype = "Forecast"), size = 1.1, color = "blue") +
+  facet_wrap(~ Serie + Model, scales = "free") +
+  labs(
+    title = "Previsioni dei Migliori Modelli",
+    x = "Tempo",
+    y = "Valore",
+    color = "Tipo",
+    linetype = "Legenda"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    text = element_text(size = 12)
+  )
+```

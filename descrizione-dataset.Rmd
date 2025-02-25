@@ -1,0 +1,842 @@
+---
+title: "Analisi Statistica del Dataset"
+author: "Analista Dati"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      message=FALSE, 
+                      warning=FALSE, 
+                      fig.align='center', fig.width = 10)
+options(xts_check_TZ = FALSE)
+```
+
+```{r}
+# Caricare librerie necessarie
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(corrplot)
+library(gridExtra)
+library(ggpubr)# Per il QQ-Plot e PP-Plot
+
+#carichiamo il dataset in R
+Sentiment_fr_tweet_2023 <- read_csv2("C:/Users/rosar/Desktop/UNISA/Magistrale - Informatica/SAD/Sentiment_fr_tweet_2023.csv")
+
+#non si lavora mai sul dataset raw, ma su una copia
+data <- Sentiment_fr_tweet_2023
+
+#correggiamo il formato delle variabili
+data <- data %>%
+  mutate(userid = as.character(userid),
+         username = as.character(username),
+         acctdesc = as.character(acctdesc),
+         location = as.character(location),
+         following = as.numeric(following),
+         followers = as.numeric(followers),
+         totaltweets = as.numeric(totaltweets),
+         tweetid = as.character(tweetid),
+         retweetcount = as.numeric(retweetcount),
+         favorite_count = as.numeric(favorite_count),
+         text = as.character(text),
+         language = as.character(language),
+         favorite_count = as.numeric(favorite_count),
+         
+         is_retweet = as.factor(is_retweet),
+         original_tweet_id = format(as.numeric(original_tweet_id), 
+                                    scientific = FALSE),
+         original_tweet_userid = format(as.numeric(original_tweet_userid), 
+                                        scientific = FALSE),
+         original_tweet_username = as.character(original_tweet_username),
+         
+         in_reply_to_status_id = format(as.numeric(in_reply_to_status_id), 
+                                        scientific = FALSE),
+         in_reply_to_user_id = format(as.numeric(in_reply_to_user_id), 
+                                      scientific = FALSE),
+         in_reply_to_screen_name = as.character(in_reply_to_screen_name),
+         
+         is_quote_status = as.factor(is_quote_status),
+         quoted_status_id = format(as.numeric(quoted_status_id), 
+                                   scientific = FALSE),
+         quoted_status_userid = format(as.numeric(quoted_status_userid), 
+                                       scientific = FALSE),
+         quoted_status_username = as.character(quoted_status_username),
+         
+         sentiment = as.factor(sentiment),
+         score = as.numeric(score)
+  )
+```
+
+```{r}
+# Visualizzare prime righe
+glimpse(data)
+```
+
+```{r}
+summary(data)
+```
+
+## **1. Analisi descrittiva di base**
+
+-   **Calcolo delle misure di tendenza centrale**: media, mediana, moda.
+
+-   **Calcolo delle misure di dispersione**: varianza, deviazione standard, range, interquartile range (IQR).
+
+-   **Minimo e massimo**: per avere una prima idea della distribuzione dei valori.
+
+-   **Coefficiente di variazione**: per valutare la dispersione rispetto alla media.
+
+-   **Percentili e quartili**: per identificare la distribuzione dei dati.
+
+```{r}
+descr <- data %>% 
+  select_if(is.numeric) %>% psych::describe()
+descr %>% select(-c(vars))
+```
+
+### **Considerazioni generali**
+
+1.  **Tutte le variabili, tranne `score`, mostrano una distribuzione fortemente asimmetrica.**
+
+    -   La media è molto più alta della mediana per la maggior parte delle variabili, indicando una lunga coda destra.
+
+    -   La maggior parte degli utenti ha valori molto bassi, ma alcuni estremi spingono la media verso l'alto.
+
+2.  **Outlier estremi in `followers`, `totaltweets`, `retweetcount` e `favorite_count`**
+
+    -   L'**elevata curtosi** in queste variabili suggerisce che pochi individui hanno valori molto superiori alla media.
+
+3.  **`score` è l’unica variabile con una distribuzione relativamente normale**
+
+    -   Ha un range ristretto e valori di skewness e curtosi vicini a zero.
+
+## **2. Visualizzazione grafica preliminare**
+
+-   **Istogramma**: per osservare la forma della distribuzione.
+
+-   **Grafico Q-Q (Quantile-Quantile Plot)**: per confrontare la distribuzione empirica con una distribuzione teorica.
+
+-   **Boxplot** + **Violin plot**: per identificare la presenza di outlier.
+
+-   **Scatter plot (se la variabile è analizzata rispetto ad altre variabili)**.
+
+**Strategie adottate:**
+
+1.  **Log-trasformazione** per variabili fortemente asimmetriche (`followers`, `following`, `totaltweets`, `retweetcount`, `favorite_count`) per migliorare la leggibilità dei grafici.
+
+2.  **Grafici separati per le variabili con e senza forte asimmetria.**
+
+```{r}
+# Trasformazione logaritmica per variabili con forte asimmetria
+data$log_followers <- log1p(data$followers)
+data$log_following <- log1p(data$following)
+data$log_totaltweets <- log1p(data$totaltweets)
+data$log_retweetcount <- log1p(data$retweetcount)
+data$log_favorite_count <- log1p(data$favorite_count)
+data$log_score <- log1p(data$score)
+```
+
+```{r}
+# Funzione per identificare outlier con il metodo IQR (Tukey)
+detect_outliers_iqr <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  return(x < lower_bound | x > upper_bound)
+}
+
+# Funzione per identificare outlier con lo Z-score
+detect_outliers_zscore <- function(x) {
+  z_scores <- (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)
+  return(abs(z_scores) > 3)
+}
+
+# Funzione per identificare outlier con il metodo di Hampel
+detect_outliers_hampel <- function(x) {
+  med <- median(x, na.rm = TRUE)
+  mad_val <- mad(x, constant = 1.4826, na.rm = TRUE) # MAD con costante per la normalizzazione
+  return(abs(x - med) / mad_val > 3)
+}
+```
+
+#### **Distribuzione dei dati**
+
+📌Visualiziamo la distribuzione delle variabili per osservare le forti asimmetrie che fuoriescono dall'analisi generale.
+
+```{r}
+plot_density_comparison <- function(data, log_var_name, color) {
+  
+  # Creazione dei dati per le due distribuzioni
+  df1 <- data.frame(Value = data[[log_var_name]], Type = paste(log_var_name, "(Log)"))
+  df2 <- data %>% 
+    filter(!detect_outliers_hampel(.data[[log_var_name]])) %>% 
+    transmute(Value = .data[[log_var_name]], Type = paste(log_var_name, "(Log) - No Outliers"))
+  
+  # Unione dei dataset
+  df_plot <- bind_rows(df1, df2)
+  
+  
+  # Plot delle densità con ggplot2
+  ggplot(df_plot, aes(x = Value, color = Type)) +
+    geom_histogram(aes(y = after_stat(density)),
+                 bins = 30, fill = color, alpha = 0.2) +
+    geom_density(linewidth=1.3) +
+    scale_color_manual(values = c(paste(color,"4"), paste(color,"4"))) +
+    facet_wrap(~Type, scales = "free") + 
+    theme_bw() + 
+    theme(legend.position = "bottom")
+}
+```
+
+```{r}
+p1 <- ggplot(data, aes(x = followers)) + 
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 30, fill = "blue", alpha = 0.5) +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(data$followers), 
+                            sd = sd(data$followers)), color = "darkblue", size = 1) +
+  theme_bw() +
+  ggtitle("Followers")
+
+p2 <- ggplot(data, aes(x = totaltweets)) + 
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 30, fill = "red", alpha = 0.5) +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(data$totaltweets), 
+                            sd = sd(data$totaltweets)), color = "darkred", size = 1) +
+  theme_bw() +
+  ggtitle("Total Tweets")
+
+p3 <- ggplot(data, aes(x = following)) + 
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 30, fill = "purple", alpha = 0.5) +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(data$following), 
+                            sd = sd(data$following)), color = "purple4", size = 1) +
+  theme_bw() +
+  ggtitle("Following")
+
+p4 <- ggplot(data, aes(x = retweetcount)) + 
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 30, fill = "brown", alpha = 0.5) +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(data$retweetcount), 
+                            sd = sd(data$retweetcount)), color = "brown4", size = 1) +
+  theme_bw() +
+  ggtitle("Retweetcount")
+
+p5 <- ggplot(data, aes(x = favorite_count)) + 
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 30, fill = "orange", alpha = 0.5) +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(data$favorite_count), 
+                            sd = sd(data$favorite_count)), color = "orange4", size = 1) +
+  theme_bw() +
+  ggtitle("Favouritecount")
+
+p6 <- ggplot(data, aes(x = score)) + 
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 30, fill = "green", alpha = 0.5) +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(data$score), 
+                            sd = sd(data$score)), color = "darkgreen", size = 1) +
+  theme_bw() +
+  ggtitle("Score")
+
+grid.arrange(p1, p2, p3, p4, p5, p6, ncol=3)
+```
+
+Esattamente come si evinceva dalle prime analisi le distribuzioni delle variabili sono fortemente asimettriche negative, ma anche la presenza di valori anomali. Per questo motivo applichiamo **trasformazioni logaritmiche** e **rilevazione degli outliers** per avere una visualizzazione migliore della distribuzione.
+
+#### Trasformazione logaritmica
+
+Osserviamo come cambia la distribuzione e gli outliers visualizzando il boxplot con violin plot per ogni variabile in scala logaritmica
+
+```{r}
+# Riorganizzazione dei dati in formato long
+df_long <- data %>%
+  select(log_followers, log_totaltweets, log_following, 
+         log_retweetcount, log_favorite_count, log_score) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+color_palette <- c(
+  "log_followers" = "blue",
+  "log_totaltweets" = "red",
+  "log_following" = "purple",
+  "log_retweetcount" = "brown",
+  "log_favorite_count" = "orange",
+  "log_score" = "green"
+)
+
+# Creazione del boxplot unico
+ggplot(df_long, aes(y = Variable, x = Value, fill = Variable)) +
+  geom_boxplot(alpha = 0.5, outlier.alpha = 0.5, notch = TRUE) +
+  theme_bw() +
+  ggtitle("Boxplot delle Variabili") +
+  scale_fill_manual(values = color_palette)
+```
+
+#### **Identificazione degli outlier**
+
+Utilizziamo metodi specifici per l'estrapolazione degli outliers dalle variabili:
+
+-   **Boxplot e regola di Tukey (IQR Method)**: valori oltre 1.5\*IQR dai quartili sono potenziali outlier.
+
+-   **Z-score (Standard Score)**: valori oltre ±3 possono essere considerati outlier.
+
+-   **Metodo di Hampel**: basato sulla mediana e la deviazione mediana assoluta (MAD).
+
+```{r}
+# Applicazione delle funzioni a ciascuna variabile numerica
+outliers_iqr <- data %>% mutate(across(where(is.numeric), detect_outliers_iqr))
+outliers_zscore <- data %>% mutate(across(where(is.numeric), detect_outliers_zscore))
+outliers_hampel <- data %>% mutate(across(where(is.numeric), detect_outliers_hampel))
+
+# Creazione di una tabella riepilogativa degli outlier
+summary_outliers <- data.frame(
+  Variable = names(data %>% select(where(is.numeric))),
+  IQR_Outliers = sapply(data %>% select(where(is.numeric)), function(x) sum(detect_outliers_iqr(x), na.rm = TRUE)),
+  ZScore_Outliers = sapply(data %>% select(where(is.numeric)), function(x) sum(detect_outliers_zscore(x), na.rm = TRUE)),
+  Hampel_Outliers = sapply(data %>% select(where(is.numeric)), function(x) sum(detect_outliers_hampel(x), na.rm = TRUE))
+)
+
+print(summary_outliers)
+```
+
+-   **Variabili non trasformate**
+
+    -   **`following`, `followers`, `totaltweets`, `retweetcount`, `favorite_count`** hanno un numero elevato di outlier secondo tutti i metodi.
+
+    -   In particolare, **`retweetcount`** e **`favorite_count`** hanno una forte asimmetria, come si deduce dall’elevato numero di outlier Z-score e Hampel.
+
+    -   **`score`** non presenta outlier in nessun metodo, suggerendo una distribuzione più regolare.
+
+-   **Effetto della trasformazione logaritmica**
+
+    -   Dopo la trasformazione logaritmica, il numero di outlier si riduce drasticamente per **tutte** le variabili, specialmente per `log_followers`, `log_following`, `log_totaltweets`.
+
+    -   **`log_retweetcount`** ha **zero outlier** con ogni metodo, suggerendo che la trasformazione ha eliminato gran parte dell'estrema variabilità nei dati originali.
+
+    -   Questo suggerisce che i dati originali erano molto sbilanciati e altamente asimmetrici, mentre la trasformazione logaritmica ha ridotto questa distorsione.
+
+```{r}
+library(reshape2)
+
+melted_outliers <- melt(summary_outliers, id.vars = "Variable")
+ggplot(melted_outliers, aes(x = Variable, y = value, fill = variable)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Numero di outlier per metodo e variabile")
+```
+
+Osserviamo come sono cambiate le distribuzioni togliendo gli outliers
+
+```{r, fig.height=15, fig.width=25}
+p1<-plot_density_comparison(data,"log_followers", "blue")
+p2<-plot_density_comparison(data,"log_totaltweets", "red")
+p3<-plot_density_comparison(data,"log_following", "purple")
+p4<-plot_density_comparison(data,"log_retweetcount", "brown")
+p5<-plot_density_comparison(data, "log_score", "green")
+
+grid.arrange(p1, p2, p3, p4, p5, ncol=2)
+```
+
+```{r, fig.height=10, fig.width=10}
+df <- data %>% filter(!detect_outliers_hampel(log_followers))
+p7<-ggqqplot(df$log_followers, 
+         color = "blue",       # Colore dei punti
+         ggtheme = theme_bw(),
+         title = "Q-Q plot: log_followers & No-Outliers")
+
+df <- data %>% filter(!detect_outliers_hampel(log_totaltweets))
+p8 <- ggqqplot(df$log_totaltweets, 
+         color = "red",       # Colore dei punti
+         ggtheme = theme_bw(),
+         title = "Q-Q plot: log_totaltweets & No-Outliers")
+
+df <- data %>% filter(!detect_outliers_hampel(log_following)) 
+p9 <- ggqqplot(df$log_following, 
+         color = "purple",       # Colore dei punti
+         ggtheme = theme_bw(),
+         title = "Q-Q plot: log_following & No-Outliers")
+
+df <- data %>% filter(!detect_outliers_hampel(log_retweetcount))
+p10 <- ggqqplot(df$log_retweetcount, 
+         color = "brown",       # Colore dei punti
+         ggtheme = theme_bw(),
+         title = "Q-Q plot: log_retweetcount & No-Outliers")
+
+df <- data %>% filter(!detect_outliers_hampel(log_score))
+p12 <- ggqqplot(df$log_score, 
+         color = "green",       # Colore dei punti
+         ggtheme = theme_bw(),
+         title = "Q-Q plot: log_score & No-Outliers")
+
+grid.arrange(p7,
+             p8,
+             p9,
+             p10, 
+             p12, ncol = 3)
+```
+
+**Test di normalità Chi-Quadro:**
+
+```{r}
+## Fatta a mano
+x <- data %>% filter(!detect_outliers_hampel(log_followers)) %>%
+  select(log_followers) %>%
+  summarise( N = n(),
+             M = mean(log_followers),
+             sd = sd(log_followers))
+
+a <- numeric(4)
+for(i in 1:4){
+  a[i] <- qnorm(0.2*i, mean = x$M, sd=x$sd)
+}
+
+a
+
+# Determinare il numero di elementi del campione che cadono nei singoli intervalli:
+r <- 5
+nint <- numeric(r)
+nint[1] <- data %>% 
+  filter(!detect_outliers_hampel(log_followers)) %>%
+  select(log_followers) %>%
+  filter(log_followers < a[1]) %>%
+  summarise( N = n())%>%
+  pull(N)
+nint[2] <- data %>% 
+  filter(!detect_outliers_hampel(log_followers)) %>%
+  select(log_followers) %>%
+  filter(log_followers >= a[1] & log_followers < a[2]) %>%
+  summarise( N = n())%>%
+  pull(N)
+nint[3] <- data %>% 
+  filter(!detect_outliers_hampel(log_followers)) %>%
+  select(log_followers) %>%
+  filter(log_followers >= a[2] & log_followers < a[3]) %>%
+  summarise( N = n())%>%
+  pull(N)
+nint[4] <- data %>% 
+  filter(!detect_outliers_hampel(log_followers)) %>%
+  select(log_followers) %>%
+  filter(log_followers >= a[3] & log_followers < a[4]) %>%
+  summarise( N = n())%>%
+  pull(N)
+nint[5] <- data %>% 
+  filter(!detect_outliers_hampel(log_followers)) %>%
+  select(log_followers) %>%
+  filter(log_followers >= a[4]) %>%
+  summarise( N = n())%>%
+  pull(N)
+
+
+chisq.test(nint, p = rep(0.2, length(nint)))
+
+df <- data %>% 
+  filter(!detect_outliers_hampel(log_followers)) %>%
+  select(log_followers)
+
+nortest::lillie.test(df$log_followers)
+
+data %>% select(log_followers, log_following, log_totaltweets, log_retweetcount, log_favorite_count, log_score)
+```
+
+```{r}
+remove_extreme_values <- function(data, lower_quantile = 0.05, upper_quantile = 0.95) {
+  q_lower <- quantile(data, lower_quantile, na.rm = TRUE)
+  q_upper <- quantile(data, upper_quantile, na.rm = TRUE)
+  
+  # Filtra i valori tra i quantili specificati
+  filtered_data <- data[data >= q_lower & data <= q_upper]
+  
+  return(filtered_data)
+}
+```
+
+#### **Scatter Plot: Relazione tra variabili**
+
+📌 **Verifichiamo se esistono correlazioni tra le variabili**.
+
+```{r, fig.height=10}
+library(GGally)
+
+data %>%
+  select(log_followers, log_following, log_totaltweets, log_retweetcount, log_favorite_count, log_score) %>%
+  GGally::ggpairs(
+    upper = list(continuous = wrap("cor", size = 4)),
+    lower = list(continuous = wrap("smooth", color = "gray60")),
+    diag = list(continuous = wrap("densityDiag", fill = "lightblue"))
+  ) +
+  theme_bw()
+```
+
+Notiamo che sono presenti delle relazioni lineari fra le variabili numeriche del dataset. Osserviamole meglio:
+
+```{r}
+# Selezione delle variabili numeriche per l'analisi
+data_selected <- data %>% select(followers,following, totaltweets, retweetcount, favorite_count, score)
+
+# Calcolo della matrice di correlazione con Pearson, Spearman e Kendall
+cor_pearson <- cor(data_selected, use = "complete.obs", method = "pearson")
+
+# Heatmap della correlazione (Pearson)
+corrplot(cor_pearson, method = "color", type = "lower", order = "hclust", 
+         col = colorRampPalette(c("blue3", "white", "red3"))(200), 
+         diag = FALSE,
+         tl.cex = 0.8, tl.col = "black",
+         addCoef.col = "black",  # Aggiunge i numeri della correlazione in nero
+         number.cex = 0.7)       # Dimensione dei numeri
+```
+
+Osserviamo alcuni punti chiave:
+
+🔹 **Correlazioni forti**
+
+-   **`log_followers` e `log_following` (0.69)** → Forte correlazione positiva: utenti con più follower tendono a seguire più persone.
+
+-   **`log_followers` e `log_totaltweets` (0.65)** → Chi ha più follower tende ad aver pubblicato più tweet.
+
+🔸 **Correlazioni moderate**
+
+-   **`log_totaltweets` e `log_following` (0.47)** → Gli utenti che seguono molte persone tendono ad aver scritto più tweet.
+
+-   **`log_followers` e `log_favorite_count` (0.27)** → Una leggera correlazione positiva: chi ha più follower potrebbe ricevere più like sui post.
+
+⚠️ **Correlazioni deboli o inverse**
+
+-   **`log_retweetcount` e `log_followers` (-0.16)** → Debole correlazione negativa: non necessariamente più follower significano più retweet.
+
+-   **`log_retweetcount` e `log_favorite_count` (-0.20)** → Tendenza inversa tra retweet e like: potrebbe indicare che alcuni tweet ricevono più retweet a discapito dei like.
+
+-   **`score` mostra correlazioni molto basse** con tutte le altre variabili, suggerendo che potrebbe non dipendere linearmente dalle metriche considerate.
+
+#### Modello di regressione (followers)
+
+```{r}
+model <- lm(log_followers ~ log_following + log_totaltweets + log_retweetcount + log_favorite_count + log_score, data = data)
+
+# Riepilogo del modello
+summary(model)
+
+forecast::checkresiduals(model)
+```
+
+```{r}
+model <- lm(log_followers ~ log_following + log_totaltweets + log_retweetcount + log_favorite_count + log_score + sentiment + is_retweet + is_quote_status, data = data)
+
+# Riepilogo del modello
+summary(model)
+```
+
+#### Modello di Regressione Multipla (Score)
+
+```{r}
+model1 <- lm(score ~ log_followers + log_following + log_totaltweets + 
+              log_retweetcount + log_favorite_count, data = data)
+
+# Riepilogo del modello
+summary(model1)
+```
+
+```{r}
+df <- data %>%
+  select(score, log_followers, log_following, log_totaltweets, log_retweetcount, log_favorite_count, is_retweet, is_quote_status, sentiment)
+
+model2 <- lm(score ~ ., data = df)
+
+# Riepilogo del modello
+summary(model2)
+```
+
+**Modello 1 (solo variabili logaritmiche)**
+
+-   **`log_retweetcount` (+0.0129)** → L'aumento dei retweet ha il maggiore impatto positivo su `score`.
+
+-   **`log_favorite_count` (+0.0046)** → Anche i like hanno un effetto positivo.
+
+-   **`log_followers` (-0.0033)** → Controintuitivamente, un maggior numero di follower è associato a un punteggio inferiore.
+
+-   **Bassa capacità predittiva** (`R² Adjusted = 0.0247`), suggerisce che altre variabili non incluse sono più importanti.
+
+**Modello 2 (logaritmi + categoriali)**
+
+-   **`is_retweetTRUE` (-0.0483)** → Se un tweet è un retweet, `score` diminuisce significativamente.
+
+-   **`is_quote_statusTRUE` (+0.0203)** → Se un tweet è una citazione, `score` aumenta.
+
+-   **`sentimentneu` (-0.2141)** e **`sentimentpos` (-0.1426)** → I tweet neutri e positivi hanno un impatto **negativo** su `score` rispetto ai negativi (riferimento), suggerendo che i tweet negativi potrebbero avere più engagement.
+
+-   **`log_retweetcount` (+0.0142)** → Ancora una volta, il numero di retweet è il miglior predittore positivo.
+
+-   **`log_favorite_count` (-0.0101)** → A differenza del Modello 1, ora ha un impatto negativo.
+
+Il **Modello 2** è nettamente migliore rispetto al Modello 1 perché ha:
+
+-   **R² Adjusted molto più alto** (0.2499 vs 0.0247), indicando che spiega una maggiore parte della variabilità di `score`.
+
+-   **Residual Standard Error minore** (0.1571 vs 0.1791), il che suggerisce previsioni più precise.
+
+-   **Più variabili significative**, incluse le variabili categoriali `is_retweet`, `is_quote_status` e le emozioni `sentimentneu` e `sentimentpos`.
+
+**Conclusioni**
+
+1.  **Il Modello 2 è nettamente migliore** in termini di spiegazione della variabilità e accuratezza.
+
+2.  **Le variabili categoriali (retweet, citazione, sentiment) sono molto influenti**, e il loro impatto sarebbe perso nel Modello 1.
+
+3.  **Il sentiment negativo sembra favorire `score`**, un risultato interessante per l'analisi dell'engagement.
+
+Notiamo come **NON** effettuando la trasformazione logaritmica delle variabili anche la capacità esplicativa del modello crolla:
+
+```{r}
+df <- data %>%
+  select(following, followers, totaltweets, retweetcount, favorite_count, is_retweet, is_quote_status, sentiment, score)
+
+model <- lm(score ~ ., data = df)
+
+summary(model)
+```
+
+#### Modello di Regressione Multipla (Sentiment)
+
+**Interpretazione Generale**
+
+-   Il modello utilizza **il sentiment negativo come categoria di riferimento**.
+
+-   Le due righe nei coefficienti rappresentano:
+
+    -   **neu** → log-odds di un tweet essere **neutro** rispetto al negativo.
+
+    -   **pos** → log-odds di un tweet essere **positivo** rispetto al negativo.
+
+-   I coefficienti positivi indicano che **aumentano la probabilità di appartenere alla categoria rispetto al negativo**, mentre quelli negativi indicano una **maggiore probabilità di essere negativi**.
+
+```{r}
+library(nnet)
+
+df <- data %>%
+  select(log_following, log_followers, log_totaltweets, log_retweetcount, log_favorite_count, is_retweet, is_quote_status, sentiment, log_score)
+
+# Modello multinomiale: sentiment come variabile dipendente
+model_multinom <- multinom(sentiment ~ ., data = df)
+
+# Sommario del modello
+summary(model_multinom)
+```
+
+```{r}
+# Creiamo il dataframe con i risultati
+tabella_confronto <- data.frame(
+  Fattore = c("Score alto", "Più follower", "Più following", "Più tweet totali",
+              "Più retweet ricevuti", "Più 'Mi piace' ricevuti", "Essere un retweet", "Essere una citazione"),
+  Negativo = c("🟢 Aumenta", "🔻 Diminuisce", "🔻 Diminuisce", "🟢 Aumenta",
+               "🟢 Aumenta", "🟢 Aumenta", "🔻 Diminuisce", "🟢 Aumenta"),
+  Neutro = c("🔻 Diminuisce", "🟢 Aumenta", "🔻 Diminuisce", "🔻 Diminuisce",
+             "🔻 Diminuisce", "🔻 Diminuisce", "🔻 Diminuisce", "🔻 Diminuisce"),
+  Positivo = c("🔻 Diminuisce", "🟢 Aumenta", "🔻 Diminuisce", "🔻 Diminuisce",
+               "🔻 Diminuisce", "🔻 Diminuisce", "🔻 Diminuisce", "🟢 Aumenta")
+)
+
+tabella_confronto
+```
+
+**1. Tweet Negativi (Categoria di Riferimento)**
+
+**Fattori che aumentano la probabilità di avere un sentiment negativo:**
+
+-   **Score più alto** → Maggiore è lo score, più probabile è che il tweet sia negativo.
+
+-   **Più tweet totali dell'utente** → Gli utenti molto attivi hanno una maggiore probabilità di scrivere tweet negativi.
+
+-   **Meno "Mi piace" ricevuti** → I tweet meno apprezzati tendono ad essere più negativi.
+
+-   **Maggioranza dei sentimenti neutri e positivi hanno coefficienti negativi rispetto al negativo**, suggerendo che il **negativo è lo stato più comune quando non ci sono forti influenze esterne**.
+
+**Possibile spiegazione**:
+
+-   I tweet negativi potrebbero essere più **polarizzanti e condivisibili** (maggiore interazione).
+
+-   Gli utenti molto attivi potrebbero essere più inclini a esprimere **opinioni critiche o lamentele**.
+
+**2. Tweet Neutri**
+
+**Fattori che aumentano la probabilità di un tweet neutro rispetto a uno negativo:**
+
+-   **Più follower** → Chi ha più follower ha più probabilità di scrivere tweet neutri rispetto ai negativi.
+
+-   **Meno retweet ricevuti** → I tweet con meno condivisioni sono più neutri.
+
+-   **Non essere un retweet o una citazione** → I tweet originali sono più spesso neutri.
+
+**Fattori che riducono la probabilità di un tweet neutro:**
+
+-   **Score alto** → Un alto score riduce la probabilità di un tweet neutro (lo spinge verso il negativo).
+
+-   **Più "Mi piace" ricevuti** → I tweet che ricevono più apprezzamenti tendono a essere meno neutri (più polarizzati).
+
+-   **Citare altri tweet** → Se un tweet è una citazione, è meno probabile che sia neutro.
+
+**Possibile spiegazione**:
+
+-   Chi ha molti follower potrebbe cercare di **mantenere un tono più neutrale** per evitare polemiche.
+
+-   I tweet originali, rispetto ai retweet o alle citazioni, sono meno polarizzati e più descrittivi.
+
+-   I tweet neutri ricevono meno interazioni (meno retweet e like).
+
+**3. Tweet Positivi**
+
+**Fattori che aumentano la probabilità di un tweet positivo rispetto a uno negativo:**
+
+-   **Più follower** → Utenti con più follower hanno più probabilità di scrivere tweet positivi.
+
+-   **Citazioni di altri tweet** → Se un tweet cita un altro tweet, è più probabile che sia positivo.
+
+-   **Score leggermente più basso** → I tweet positivi tendono ad avere un punteggio più basso rispetto ai negativi.
+
+**Fattori che riducono la probabilità di un tweet positivo:**
+
+-   **Più tweet totali** → Chi twitta molto tende meno a scrivere tweet positivi.
+
+-   **Più "Mi piace" ricevuti** → Sorprendentemente, i tweet con più like hanno **meno probabilità di essere positivi rispetto ai negativi**.
+
+-   **Retweet** → Se un tweet è un retweet, è meno probabile che sia positivo.
+
+**Possibile spiegazione**:
+
+-   Gli utenti con più follower potrebbero avere **una community più favorevole e incoraggiante**.
+
+-   **Le citazioni potrebbero essere utilizzate per commentare in modo positivo un altro contenuto**.
+
+-   **I retweet sono spesso utilizzati per amplificare critiche**, quindi un tweet positivo è meno probabile se è un retweet.
+
+### **3. Inferenza Statistica:**
+
+-   confronto con distribuzioni teoriche (normale, esponenziale, gamma, beta, ecc.).
+
+-   **Conoscere la distribuzione dei dati**
+
+    -   Permette di **capire la forma della distribuzione** (normale, esponenziale, gamma, beta, ecc.).
+
+    -   Aiuta a **semplificare l’interpretazione** dei dati e delle loro proprietà statistiche (asimmetria, varianza, ecc.).
+
+    **Esempio:** Se una variabile segue una distribuzione **normale**, possiamo applicare direttamente la teoria della statistica classica (es. test parametrici).
+
+-   **Selezione di test statistici appropriati**
+
+    -   Alcuni test statistici **richiedono determinate ipotesi sulla distribuzione** (es. normalità per il test t di Student o ANOVA).
+
+    -   Se la distribuzione non è normale, possiamo scegliere test **non parametrici** più adeguati (es. test di Mann-Whitney).
+
+    **Esempio:** Se la distribuzione dei dati è altamente asimmetrica, un **test di Wilcoxon** è più appropriato rispetto a un test t.
+
+    -   **Test di ipotesi**:
+
+        -   **t-test**: Per confrontare la media di una variabile rispetto a un valore noto (test t a un campione) o confrontare due gruppi (test t indipendente o appaiato).
+
+        -   **ANOVA**: Per confrontare le medie di più di due gruppi.
+
+        -   **Chi-quadro**: Per testare l'indipendenza tra due variabili categoriali.
+
+    -   **Intervalli di confidenza**:
+
+        -   Costruire intervalli di confidenza per la media o la proporzione per valutare l'incertezza nelle stime.
+
+```{r}
+df <- data %>% select(log_followers, log_following, log_totaltweets, log_retweetcount, log_favorite_count, log_score)
+
+# Caricamento del dataset (assumiamo che 'df' sia già definito)
+
+# 1. Test di Wilcoxon per la mediana
+# Scelta del valore noto: uso la mediana del dataset come riferimento
+median_values <- df %>% summarise(across(everything(), median, na.rm = TRUE))
+
+# Applicazione del test di Wilcoxon su ogni variabile
+wilcoxon_results <- lapply(names(df), function(var) {
+  test <- wilcox.test(df[[var]], mu = median_values[[var]], alternative = "two.sided")
+  data.frame(Variabile = var, P_value = test$p.value, Mediana_Stimata = median_values[[var]])
+})
+wilcoxon_results <- bind_rows(wilcoxon_results)
+print(wilcoxon_results)
+```
+
+```{r}
+# 2. Intervalli di Confidenza per la Mediana con Metodo Quantile e Metodo Classico
+confidence_intervals <- lapply(names(df), function(var) {
+  # Metodo classico (assumendo normalità)
+  n <- sum(!is.na(df[[var]]))
+  med <- median(df[[var]], na.rm = TRUE)
+  se <- 1.253 * sd(df[[var]], na.rm = TRUE) / sqrt(n)
+  ic_classico <- c(med - 1.96 * se, med + 1.96 * se)
+  
+  # Metodo basato sui quantili
+  ic_quantile <- quantile(df[[var]], probs = c(0.025, 0.975), na.rm = TRUE)
+  
+  data.frame(Variabile = var,
+             IC_Classico_Lower = ic_classico[1], IC_Classico_Upper = ic_classico[2],
+             IC_Quantile_Lower = ic_quantile[1], IC_Quantile_Upper = ic_quantile[2])
+})
+confidence_intervals <- bind_rows(confidence_intervals)
+print(confidence_intervals)
+
+```
+
+### Analisi Categoriale
+
+```{r}
+# Funzione per analizzare una variabile categoriale
+analizza_categorica <- function(df, colonna) {
+  tabella <- df %>%
+    count(!!sym(colonna)) %>%                 # Conta le occorrenze di ciascuna categoria
+    mutate(percentuale = (n / sum(n)) * 100) %>%  # Calcola la frequenza relativa (%)
+    arrange(desc(n))                           # Ordina per frequenza decrescente
+  
+  unici <- n_distinct(df[[colonna]])  # Conta il numero di categorie uniche
+  moda <- tabella[[colonna]][which.max(tabella$n)]  # Trova la moda
+  moda_perc <- max(tabella$percentuale)  # Percentuale della moda
+  
+  # Aggiunge le informazioni di riepilogo a ogni riga
+  tabella <- tabella %>%
+    mutate(Variabile = colonna, 
+           Categorie_Uniche = unici,
+           Moda = moda, 
+           Moda_Percentuale = moda_perc) %>%
+    select(Variabile, everything())  # Riordina le colonne
+  
+  return(tabella)
+}
+
+# Seleziona solo le colonne categoriali (fattori o caratteri)
+variabili_categoriche <- names(data)[sapply(data, is.factor)]
+
+# Applica la funzione a tutte le variabili categoriali e combina i risultati
+risultati_categoriche <- bind_rows(lapply(variabili_categoriche, function(col) analizza_categorica(data, col)))
+
+# Visualizza la tabella finale
+print(risultati_categoriche)
+
+```
+
+```{r}
+library(lubridate)
+dataExtract <- data %>%
+  filter(!is.na(extractedts)) %>%
+  mutate(
+    ora = hour(extractedts),
+    giorno_settimana = wday(extractedts, label = TRUE, abbr = FALSE),
+    intervallo_sec = as.numeric(difftime(extractedts, lag(extractedts), units = "secs"))
+  )
+
+# Stampa delle tabelle di frequenza e della media dell'intervallo
+print(table(dataExtract$ora)/length(dataExtract$ora))
+print(table(dataExtract$giorno_settimana)/length(dataExtract$giorno_settimana))
+print(mean(na.omit(dataExtract$intervallo_sec), na.rm = TRUE))
+
+```
