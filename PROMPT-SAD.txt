@@ -1,0 +1,120 @@
+OBJECTIVE
+
+Hello Chat, I am conducting a statistical analysis on a dataset containing data related to French-language tweets about the Russia-Ukraine war over a given time period.
+
+Your task is to generate a reduced synthetic dataset that:
+
+- Maintains the same structure as the original dataset.
+- Reproduces the statistical characteristics of the variables (mean, standard deviation, distributions, correlations).
+- Respects the coherence between variables (e.g. a tweet with many retweets will be more likely to have many likes).
+
+The generated dataset must contain a smaller number of observations than the original.
+
+I will provide you with a detailed description of the structure and statistical characteristics of the original dataset. Use this information to generate a reduced dataset that respects the data distribution, correlations between variables, and the indicated frequencies.
+
+
+DESCRIPTION OF THE ORIGINAL DATASET STRUCTURE
+
+ORIGINAL DATASET STRUCTURE
+The original dataset contains 112958 rows (observations) and 19 columns (variables), divided as follows:
+
+- 8 variables of type char
+- 6 variables of type numeric
+- 2 variables of type bool
+- 1 variable of type categorical
+- 2 variables of type date (POSIXct: "year-month-day hour:minute:seconds")
+
+Each observation in the dataset represents the set of data extracted at that exact moment from a post/tweet published on Twitter.
+
+Specifically, the variables are described below:
+1. userid <char>: the unique code of the user who posted the tweet;
+2. following <numeric>: the number of people the user is following at the time of data extraction;
+3. followers <numeric>: the number of people following the user at the time of data extraction;
+4. totaltweets <numeric>: the number of tweets the user has posted at the time of data extraction;
+5. tweetid <char>: the unique code of the tweet;
+6. tweetcreatedts <date>: when the tweet was posted;
+7. retweetcount <numeric>: the number of retweets received by the post at the time of data extraction;
+8. favorite_counts <numeric>: the number of likes received by the post at the time of data extraction;
+9. is_retweet <bool>: TRUE if the post is a retweet (FALSE otherwise);
+10. original_tweet_id <char>: ID of the tweet that was retweeted;
+11. original_tweet_userid <char>: ID of the user that was retweeted;
+12. in_reply_to_status_id <char>: ID of the post that was replied to;
+13. in_reply_to_userid <char>: ID of the user that was replied to;
+14. is_quote_status <bool>: TRUE if the post contains a quote (FALSE otherwise);
+15. quoted_status_id <char>: ID of the post that was quoted;
+16. quoted_status_userid <char>: ID of the user that was quoted;
+17. extractedts <date>: when the data was extracted;
+18. sentiment <categorical>: identifies the sentiment of the post in three categories (neg, pos, neu);
+19. score <numeric>: quantitative value of the sentiment.
+
+NOTE: The values of the variables refer to the exact moment the data was extracted. This means that the same tweetid or userid may appear multiple times in the dataset with different associated values, since the information changes over time. For example, a tweet might have a certain number of likes at the time of the initial extraction, but if it is extracted again after a certain time interval, the number of likes may have changed.
+
+
+STATISTICAL DESCRIPTION OF NUMERIC VARIABLES
+
+Variable         N        Mean       Std.Dev   Median    Trimmed   MAD      Min      Max        Range      Skew      Kurtosis   SE
+------------------------------------------------------------------------------------------------------------------------------
+following       112958   1616.50    3098.48   686.00    1107.81   853.98   0.00     237024.00   237024.00   16.68     767.71     9.22
+followers       112958   14686.02   297700.05 507.00    930.46    687.93   0.00     10593615.00 10593615.00 31.54     1070.53    885.77
+totaltweets     112958   70915.77   144023.86 22766.50  39161.61  29928.50 1.00     4196373.00  4196372.00  5.76      57.03      428.52
+retweetcount    112958   191.83     390.80    28.00     90.26     41.51    0.00     6698.00     6698.00     3.21      12.26      1.16
+favorite_count  112958   1.22       37.53     0.00      0.00      0.00     0.00     11659.00    11659.00    267.80    82445.15   0.11
+score           112958   0.73       0.18      0.77      0.74      0.22     0.34     0.97        0.64        -0.41     -1.21      0.00
+
+PEARSON CORRELATION BETWEEN VARIABLES
+                  followers    following  totaltweets retweetcount favorite_count        score
+followers       1.000000000  0.005288844  0.084375707 -0.021309207    0.036249383 -0.002634768
+following       0.005288844  1.000000000  0.269092171 -0.061520077    0.018119973 -0.013593204
+totaltweets     0.084375707  0.269092171  1.000000000 -0.081132552   -0.004184552 -0.013358305
+retweetcount   -0.021309207 -0.061520077 -0.081132552  1.000000000   -0.002584335  0.168243423
+favorite_count  0.036249383  0.018119973 -0.004184552 -0.002584335    1.000000000 -0.006042177
+score          -0.002634768 -0.013593204 -0.013358305  0.168243423   -0.006042177  1.000000000
+
+
+STATISTICAL DESCRIPTION OF BOOL AND CATEGORICAL VARIABLES
+
+Variable            Relative Frequency
+---------------------------------------------------------
+is_quote_status     FALSE      TRUE
+                    0.7934206  0.2065794
+is_retweet          FALSE      TRUE
+                    0.1680979  0.8319021
+                    neg        neu        pos
+sentiment           0.6764196  0.1561819  0.1673985
+
+
+STATISTICAL DESCRIPTION OF DATE POSIXct VARIABLES
+
+Variable <Tweetcreatedts>:
+Hourly frequency of tweets posted
+          0           1           2           3           4           5           6           7           8           9          10
+0.016430886 0.010950973 0.009127286 0.008684644 0.010012571 0.017245348 0.031914517 0.049938915 0.057614335 0.060057721 0.059588520
+         11          12          13          14          15          16          17          18          19          20          21
+0.056259849 0.060279042 0.055737531 0.052931178 0.056366083 0.056224437 0.057339896 0.056100498 0.053834168 0.050611732 0.044405885
+         22          23
+0.040661131 0.027682856
+
+Daily frequency of tweets posted
+   Sunday      Monday     Tuesday   Wednesday    Thursday      Friday    Saturday
+0.18216505  0.15105614  0.07797588  0.12157616  0.15287983  0.13323536  0.18111156
+
+Average time interval between posts in seconds: 5.354029
+
+
+Variable <extractedts>:
+Hourly frequency of data extraction
+          0           1           2           3           4           5           6           7           8           9          10
+0.028948813 0.023583987 0.032321748 0.009755838 0.009056463 0.011004090 0.019910055 0.029506542 0.046388923 0.054489279 0.051488164
+         11          12          13          14          15          16          17          18          19          20          21
+0.055905735 0.060456099 0.055241771 0.059198994 0.065918306 0.055985411 0.056481170 0.056622816 0.051789161 0.051824572 0.045158377
+         22          23
+0.036615379 0.032348306
+
+Daily frequency of data extraction
+   Sunday      Monday     Tuesday   Wednesday    Thursday      Friday    Saturday
+0.18288213  0.15094106  0.07981728  0.11458241  0.15519928  0.13479346  0.18178438
+
+Average time interval between data extractions in seconds: 5.211296
+
+
+Now that you know all this information, carry out the objective described at the beginning and return the dataset in .json format

@@ -1,0 +1,816 @@
+---
+title: "Granular Temporal Analysis - Tweet Count"
+author: "Rosario Pio Gnazzo, Antonio Pauzano"
+date: "2025-01-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      message=FALSE, 
+                      warning=FALSE, 
+                      fig.align='center', fig.width = 10)
+options(xts_check_TZ = FALSE)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(highfrequency)
+library(xts)
+library(forecast)
+library(lubridate)
+library(gridExtra)
+library(urca)
+library(tibble)
+```
+
+```{r}
+# Load the dataset.
+# The CSV file must be placed in the root of the repository (one level above this script).
+# See data/README.md for instructions on how to obtain the dataset.
+Sentiment_fr_tweet_2023 <- read_csv2("../Sentiment_fr_tweet_2023.csv")
+
+dataset <- Sentiment_fr_tweet_2023
+
+dataset <- dataset %>%
+  mutate(userid = as.character(userid),
+         following = as.numeric(following),
+         followers = as.numeric(followers),
+         totaltweets = as.numeric(totaltweets),
+         tweetid = as.character(tweetid),
+         retweetcount = as.numeric(retweetcount),
+         favorite_count = as.numeric(favorite_count),
+         is_retweet = as.factor(ifelse(is_retweet == FALSE, 0, 1)),
+         is_quote_status = as.factor(ifelse(is_quote_status == FALSE, 0, 1)),
+         sentiment = as.factor(sentiment),
+         score = as.numeric(score),
+         score_std = scale(score))
+```
+
+# Temporal Analysis of Tweet Volume
+
+Un idea potrebbe essere quella di osservare la distribuzione nel tempo dei post su Twitter contando il numero di occorrenze per sentiment in un dato sotto-intervallo di tempo.
+
+```{r, include=FALSE}
+df_occ10 <- dataset %>%   
+  mutate(interval = floor_date(tweetcreatedts, "10 minutes")) %>% 
+  group_by(interval, sentiment) %>% 
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(interval, sentiment)
+
+df_occ30 <- dataset %>%
+  mutate(interval = floor_date(tweetcreatedts, "30 minutes")) %>% 
+  group_by(interval, sentiment) %>% 
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(interval, sentiment)
+
+df_occ1h <- dataset %>%
+  mutate(interval = floor_date(tweetcreatedts, "1 hours")) %>% 
+  group_by(interval, sentiment) %>% 
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(interval, sentiment)
+
+df_occ6h <- dataset %>%
+  mutate(interval = floor_date(tweetcreatedts, "6 hours")) %>% 
+  group_by(interval, sentiment) %>% 
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(interval, sentiment)
+```
+
+```{r, fig.width=8, fig.height=8}
+# Grafico a linee 
+p1 <- ggplot(df_occ10, aes(x = interval, y = count, color = sentiment)) +   
+  geom_line() +   
+  labs( title = "Granularity: 10 minutes", 
+        x = "Intervalli di 10 Minuti", 
+        y = "Number of Tweets", color = "Sentiment") +   
+  theme_bw() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_datetime(date_breaks = "6 hours", date_labels = "%d-%b %H:%M")
+
+p2 <- ggplot(df_occ30, aes(x = interval, y = count, color = sentiment)) +   
+  geom_line() +   
+  labs( title = "Granularity: 30 minutes", 
+        x = "Intervalli di 30 Minuti", 
+        y = "Number of Tweets", color = "Sentiment") +   
+  theme_bw() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_datetime(date_breaks = "6 hours", date_labels = "%d-%b %H:%M")
+
+p3 <- ggplot(df_occ1h, aes(x = interval, y = count, color = sentiment)) +   
+  geom_line() +   
+  labs( title = "Granularity: 1 hour", 
+        x = "Intervalli di 1 ora", 
+        y = "Number of Tweets", color = "Sentiment") +   
+  theme_bw() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_datetime(date_breaks = "6 hours", date_labels = "%d-%b %H:%M")
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+The plot clearly captures the presence of a temporal periodic structure in the data, which persists across all levels of analysis. Let us examine this structure more closely.
+
+## Periodicity Analysis of the Time Series
+
+```{r, include=FALSE}
+# Reshape to wide format for convenience 
+df_occ_wide10 <- df_occ10 %>%   
+  pivot_wider(names_from = sentiment, values_from = count, values_fill = 0)  
+df_occ_wide30 <- df_occ30 %>%   
+  pivot_wider(names_from = sentiment, values_from = count, values_fill = 0) 
+df_occ_wide1h <- df_occ1h %>%   
+  pivot_wider(names_from = sentiment, values_from = count, values_fill = 0) 
+
+# Create time series for un sentiment specifico (es. "neg") 
+neg_ts10 <- ts(df_occ_wide10$neg, start = c(2023, 1), frequency = 144) # 144 intervalli di 10 minuti al giorno
+neg_ts30 <- ts(df_occ_wide30$neg, start = c(2023, 1), frequency = 48) # 48 intervalli di 30 minuti al giorno 
+neg_ts1h <- ts(df_occ_wide1h$neg, start = c(2023, 1), frequency = 24) # 24 intervalli di 1 pra al giorno
+
+# Create time series for un sentiment specifico (es. "neu") 
+neu_ts10 <- ts(df_occ_wide10$neu, start = c(2023, 1), frequency = 144) # 144 intervalli di 10 minuti al giorno
+neu_ts30 <- ts(df_occ_wide30$neu, start = c(2023, 1), frequency = 48) # 48 intervalli di 30 minuti al giorno 
+neu_ts1h <- ts(df_occ_wide1h$neu, start = c(2023, 1), frequency = 24) # 24 intervalli di 1 pra al giorno
+
+# Create time series for un sentiment specifico (es. "pos") 
+pos_ts10 <- ts(df_occ_wide10$pos, start = c(2023, 1), frequency = 144) # 144 intervalli di 10 minuti al giorno
+pos_ts30 <- ts(df_occ_wide30$pos, start = c(2023, 1), frequency = 48) # 48 intervalli di 30 minuti al giorno 
+pos_ts1h <- ts(df_occ_wide1h$pos, start = c(2023, 1), frequency = 24) # 24 intervalli di 1 pra al giorno
+```
+
+### Negative Tweets
+
+```{r, include=FALSE}
+p1<-ggseasonplot(neg_ts10)+
+  scale_color_manual(
+    values = c("red", "blue", "green", "purple", "orange", "cyan", "yellow"), # Colori personalizzati
+    labels = c("day1", "day2", "day3", "day4", "day5", "day6", "day7"), # Nuove etichette
+    name = "Days")+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  xlab("Minutes")+
+  ggtitle("")+
+  theme_light()+
+  theme(legend.position = "top")
+
+p2<-ggseasonplot(neg_ts30)+
+  scale_color_manual(
+    values = c("red", "blue", "green", "purple", "orange", "cyan", "yellow"), # Colori personalizzati
+    labels = c("day1", "day2", "day3", "day4", "day5", "day6", "day7"), # Nuove etichette
+    name = "Days")+
+  xlab("Minutes")+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  ggtitle("")+
+  theme_light()+
+  theme(legend.position = "top")
+
+p3<-ggseasonplot(neg_ts1h)+
+  scale_color_manual(
+    values = c("red", "blue", "green", "purple", "orange", "cyan", "yellow"), # Colori personalizzati
+    labels = c("day1", "day2", "day3", "day4", "day5", "day6", "day7"), # Nuove etichette
+    name = "Days" # Nuovo titolo della leggenda
+  )+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()+ggtitle("")+
+  theme(legend.position = "top")
+
+p4 <- ggAcf(neg_ts10, lag.max = 300)+
+  ggtitle("ACF - 10 min") + theme_light()
+
+p5 <- ggAcf(neg_ts30, lag.max = 100)+
+  ggtitle("ACF - 30 min") + theme_light()
+
+p6<-ggAcf(neg_ts1h, lag.max = 50)+
+  ggtitle("ACF - 1 ora") + theme_light()
+```
+
+#### **10-minute granularity:**
+
+```{r, fig.height=5, fig.width=10}
+grid.arrange(p1, p4, ncol=2)
+Box.test(neg_ts10, type = "Ljung-Box")
+```
+
+#### **30-minute granularity:**
+
+```{r, fig.height=5, fig.width=10}
+grid.arrange(p2, p5, ncol=2)
+Box.test(neg_ts30, type = "Ljung-Box") 
+```
+
+#### **1-hour granularity:**
+
+```{r, fig.height=5, fig.width=10}
+grid.arrange(p3, p6, ncol=2)
+Box.test(neg_ts1h, type = "Ljung-Box")
+```
+
+### Neutral Tweets
+
+```{r, include=FALSE}
+p1<-ggseasonplot(neu_ts10)+
+  scale_color_manual(
+    values = c("red", "blue", "green", "purple", "orange", "cyan", "yellow"), # Colori personalizzati
+    labels = c("day1", "day2", "day3", "day4", "day5", "day6", "day7"), # Nuove etichette
+    name = "Days")+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  xlab("Minutes")+
+  ggtitle("")+
+  theme_light()+
+  theme(legend.position = "top")
+
+p2<-ggseasonplot(neu_ts30)+
+  scale_color_manual(
+    values = c("red", "blue", "green", "purple", "orange", "cyan", "yellow"), # Colori personalizzati
+    labels = c("day1", "day2", "day3", "day4", "day5", "day6", "day7"), # Nuove etichette
+    name = "Days")+
+  xlab("Minutes")+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  ggtitle("")+
+  theme_light()+
+  theme(legend.position = "top")
+
+p3<-ggseasonplot(neu_ts1h)+
+  scale_color_manual(
+    values = c("red", "blue", "green", "purple", "orange", "cyan", "yellow"), # Colori personalizzati
+    labels = c("day1", "day2", "day3", "day4", "day5", "day6", "day7"), # Nuove etichette
+    name = "Days" # Nuovo titolo della leggenda
+  )+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()+ggtitle("")+
+  theme(legend.position = "top")
+
+p4 <- ggAcf(neu_ts10, lag.max = 300)+
+  ggtitle("ACF") + theme_light()
+
+p5 <- ggAcf(neu_ts30, lag.max = 100)+
+  ggtitle("ACF") + theme_light()
+
+p6<-ggAcf(neu_ts1h, lag.max = 50)+
+  ggtitle("ACF") + theme_light()
+```
+
+#### **10-minute granularity:**
+
+```{r, fig.height=3}
+grid.arrange(p1, p4, ncol=2)
+Box.test(neu_ts10, type = "Ljung-Box")
+```
+
+#### **30-minute granularity:**
+
+```{r, fig.height=3}
+grid.arrange(p2, p5, ncol=2)
+Box.test(neu_ts10, type = "Ljung-Box")
+```
+
+#### **1-hour granularity:**
+
+```{r, fig.height=3}
+grid.arrange(p3, p6, ncol=2)
+Box.test(neu_ts10, type = "Ljung-Box")
+```
+
+### Positive Tweets
+
+```{r, include=FALSE}
+p1<-ggseasonplot(pos_ts10)+
+  scale_color_manual(
+    values = c("red", "blue", "green", "purple", "orange", "cyan", "yellow"), # Colori personalizzati
+    labels = c("day1", "day2", "day3", "day4", "day5", "day6", "day7"), # Nuove etichette
+    name = "Days")+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  xlab("Minutes")+
+  ggtitle("")+
+  theme_light()+
+  theme(legend.position = "top")
+
+p2<-ggseasonplot(pos_ts30)+
+  scale_color_manual(
+    values = c("red", "blue", "green", "purple", "orange", "cyan", "yellow"), # Colori personalizzati
+    labels = c("day1", "day2", "day3", "day4", "day5", "day6", "day7"), # Nuove etichette
+    name = "Days")+
+  xlab("Minutes")+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  ggtitle("")+
+  theme_light()+
+  theme(legend.position = "top")
+
+p3<-ggseasonplot(pos_ts1h)+
+  scale_color_manual(
+    values = c("red", "blue", "green", "purple", "orange", "cyan", "yellow"), # Colori personalizzati
+    labels = c("day1", "day2", "day3", "day4", "day5", "day6", "day7"), # Nuove etichette
+    name = "Days" # Nuovo titolo della leggenda
+  )+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()+ggtitle("")+
+  theme(legend.position = "top")
+
+p4 <- ggAcf(pos_ts10, lag.max = 300)+
+  ggtitle("ACF") + theme_light()
+
+p5 <- ggAcf(pos_ts30, lag.max = 100)+
+  ggtitle("ACF") + theme_light()
+
+p6<-ggAcf(pos_ts1h, lag.max = 50)+
+  ggtitle("ACF") + theme_light()
+```
+
+#### **10-minute granularity:**
+
+```{r, fig.height=3}
+grid.arrange(p1, p4, ncol=2) 
+Box.test(pos_ts10, type = "Ljung-Box")
+```
+
+#### **30-minute granularity:**
+
+```{r, fig.height=3}
+grid.arrange(p2, p5, ncol=2) 
+Box.test(pos_ts10, type = "Ljung-Box")
+```
+
+#### **1-hour granularity:**
+
+```{r, fig.height=3}
+grid.arrange(p3, p6, ncol=2) 
+Box.test(pos_ts10, type = "Ljung-Box")
+```
+
+A clear periodic structure is visible in the data. Furthermore, the Ljung-Box test, which assesses whether the correlations detected at various lags are statistically significant, is always significant (p-value \< 0.05), confirming the presence of significant autocorrelations driven by the underlying periodic structure.
+
+## Statistical Models (Negative Series Only)
+
+We search for the best statistical model to describe the time series.
+
+### Decomposition Models
+
+Decomposition models separate a time series into its structural components: *trend*, *seasonality*, and *remainder* (residuals). This allows analysis of each component independently.
+
+#### STL Decomposition
+
+STL (Seasonal and Trend decomposition using Loess) is a robust, flexible decomposition method that handles any seasonality type and is resistant to outliers.
+
+```{r}
+# Time series decomposition 
+# Observe the seasonal component to detect repeating patterns  
+neg_ts10 %>% 
+  stl(t.window = 1008, s.window = 144, robust = TRUE) -> fit10
+
+neg_ts30 %>% 
+  stl(t.window = 336, s.window = 48, robust = TRUE) -> fit30
+
+neg_ts1h %>% 
+  stl(t.window = 168, s.window = 24, robust = TRUE) -> fit1h
+
+p1<-autoplot(neg_ts10, series="Data") +   
+  autolayer(trendcycle(fit10), series="Trend") +   
+  autolayer(seasadj(fit10), series="Seasonally Adjusted") +   
+  xlab("Time") + 
+  ylab("Number of tweets") +   
+  ggtitle("STL Decomposition: negative tweets every 10 minutes") + 
+  scale_colour_manual(values=c("gray","blue","red"),breaks=c("Data","Seasonally Adjusted","Trend"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+p2<-autoplot(neg_ts30, series="Data") +   
+  autolayer(trendcycle(fit30), series="Trend") +   
+  autolayer(seasadj(fit30), series="Seasonally Adjusted") +   
+  xlab("Time") + 
+  ylab("Number of tweets") +   
+  ggtitle("STL Decomposition: negative tweets every 30 minutes") + 
+  scale_colour_manual(values=c("gray","blue","red"),breaks=c("Data","Seasonally Adjusted","Trend"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+p3<-autoplot(neg_ts1h, series="Data") +   
+  autolayer(trendcycle(fit1h), series="Trend") +   
+  autolayer(seasadj(fit1h), series="Seasonally Adjusted") +   
+  xlab("Time") + 
+  ylab("Number of tweets") +   
+  ggtitle("STL Decomposition: negative tweets every hour") +   
+  scale_colour_manual(values=c("gray","blue","red"),breaks=c("Data","Seasonally Adjusted","Trend"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+The STL decomposition clearly reveals the periodic pattern in the negative tweet series. The trend component shows a gradual variation over the observation period, while the seasonal component captures the recurring daily pattern.
+
+#### Classical Additive Decomposition
+
+The additive decomposition model assumes that the components combine additively: $y_t = T_t + S_t + R_t$, where trend, seasonality, and remainder sum to the observed value.
+
+```{r}
+neg_ts10 %>% decompose(type="additive") -> fit10A 
+neg_ts30 %>% decompose(type="additive") -> fit30A 
+neg_ts1h %>% decompose(type="additive") -> fit1hA 
+
+p1<-autoplot(neg_ts10, series="Data") +   
+  autolayer(trendcycle(fit10A), series="Trend") +   
+  autolayer(seasadj(fit10A), series="Seasonally Adjusted") +  
+  xlab("Time") + ylab("Number of tweets") +   
+  ggtitle("Additive Decomposition: negative tweets every 10 minutes") +   scale_colour_manual(values=c("gray","blue","red"), breaks=c("Data","Seasonally Adjusted","Trend"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+p2<-autoplot(neg_ts30, series="Data") +   
+  autolayer(trendcycle(fit30A), series="Trend") +   
+  autolayer(seasadj(fit30A), series="Seasonally Adjusted") +  
+  xlab("Time") + ylab("Number of tweets") +   
+  ggtitle("Additive Decomposition: negative tweets every 30 minutes") +   scale_colour_manual(values=c("gray","blue","red"), breaks=c("Data","Seasonally Adjusted","Trend"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+p3<-autoplot(neg_ts1h, series="Data") +   
+  autolayer(trendcycle(fit1hA), series="Trend") +   
+  autolayer(seasadj(fit1hA), series="Seasonally Adjusted") +  
+  xlab("Time") + ylab("Number of tweets") +   
+  ggtitle("Additive Decomposition: negative tweets every hour") +   scale_colour_manual(values=c("gray","blue","red"), breaks=c("Data","Seasonally Adjusted","Trend"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+#### Classical Multiplicative Decomposition
+
+STL (Seasonal and Trend decomposition using Loess) is a robust, flexible decomposition method that handles any seasonality type and is resistant to outliers.
+
+```{r}
+neg_ts10 %>% decompose(type="multiplicative") -> fit10M 
+neg_ts30 %>% decompose(type="multiplicative") -> fit30M 
+neg_ts1h %>% decompose(type="multiplicative") -> fit1hM 
+
+p1<-autoplot(neg_ts10, series="Data") +   
+  autolayer(trendcycle(fit10M), series="Trend") +   
+  autolayer(seasadj(fit10M), series="Seasonally Adjusted") +  
+  xlab("Time") + ylab("Number of tweets") +   
+  ggtitle("Multiplicative Decomposition: negative tweets every 10 minutes") +   scale_colour_manual(values=c("gray","blue","red"), breaks=c("Data","Seasonally Adjusted","Trend"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+p2<-autoplot(neg_ts30, series="Data") +   
+  autolayer(trendcycle(fit30M), series="Trend") +   
+  autolayer(seasadj(fit30M), series="Seasonally Adjusted") +  
+  xlab("Time") + ylab("Number of tweets") +   
+  ggtitle("Multiplicative Decomposition: negative tweets every 30 minutes") +   scale_colour_manual(values=c("gray","blue","red"), breaks=c("Data","Seasonally Adjusted","Trend"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+p3<-autoplot(neg_ts1h, series="Data") +   
+  autolayer(trendcycle(fit1hM), series="Trend") +   
+  autolayer(seasadj(fit1hM), series="Seasonally Adjusted") +  
+  xlab("Time") + ylab("Number of tweets") +   
+  ggtitle("Multiplicative Decomposition: negative tweets every hour") +   scale_colour_manual(values=c("gray","blue","red"), breaks=c("Data","Seasonally Adjusted","Trend"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+#### Custom Decomposition: Fourier Terms + Moving Average
+
+Since the data appears to exhibit daily periodicity, the number of Fourier terms K should be selected between 3 and 5.
+
+```{r}
+# Define a range of K values to test
+K_values <- 1:10 # Test K from 1 to 10
+
+# Function to test different values of K
+K_fourier_choise <- function(serie, K_values){
+  # Initialise a list to store results
+  aic_values <- numeric(length(K_values))
+
+  for (i in seq_along(K_values)) {
+    K <- K_values[i]
+  
+    # Generate Fourier terms
+    fourier_terms <- fourier(serie, K = K)
+  
+    # Linear model with Fourier terms
+    fit <- tslm(serie ~ fourier_terms)
+  
+    # Save the model AIC
+    aic_values[i] <- AIC(fit)
+  }
+  return(aic_values)
+}
+
+aic_values10 <- K_fourier_choise(neg_ts10, K_values = K_values)
+aic_values30 <- K_fourier_choise(neg_ts30, K_values = K_values)
+aic_values1h <- K_fourier_choise(neg_ts1h, K_values = K_values)
+
+
+# Find the optimal K
+best_K10 <- K_values[which.min(aic_values10)]
+best_K30 <- K_values[which.min(aic_values30)]
+best_K1h <- K_values[which.min(aic_values1h)]
+
+# Print the result
+cat("Best K for 10-minute frequency:", best_K10, "\n")
+cat("Best K for 30-minute frequency:", best_K30, "\n")
+cat("Best K for 1-hour frequency:", best_K1h, "\n")
+```
+
+```{r, include=FALSE}
+# Identify periodicity 
+fourier_terms10 <- fourier(neg_ts10, K = 5)
+fourier_terms30 <- fourier(neg_ts30, K = 2)
+fourier_terms1h <- fourier(neg_ts1h, K = 2)
+
+F10 <- tslm(neg_ts10 ~ fourier_terms10)
+F30 <- tslm(neg_ts30 ~ fourier_terms30)
+F1h <- tslm(neg_ts1h ~ fourier_terms1h)
+
+# Extract original data and fitted values 
+neg_ts10_df <- data.frame(
+  time = index(neg_ts10), 
+  value = coredata(neg_ts10))
+
+neg_ts30_df <- data.frame(
+  time = index(neg_ts30), 
+  value = coredata(neg_ts30))
+
+neg_ts1h_df <- data.frame(
+  time = index(neg_ts1h), 
+  value = coredata(neg_ts1h))
+
+neg_ts10_df$fitted <- fitted(F10)
+neg_ts30_df$fitted <- fitted(F30)
+neg_ts1h_df$fitted <- fitted(F1h)
+```
+
+```{r, fig.height=10}
+p1<-autoplot(neg_ts10, series="Data") +   
+  autolayer(ma(neg_ts10,144), series="144-MA") +   
+  autolayer(fitted(F10), series = "Fourier") +   
+  xlab("10m") + ylab("freq") +   
+  ggtitle("Decomposition: Fourier terms (5) + Moving Average (144)\n10-minute granularity")+   
+  scale_colour_manual(values=c("Data"="grey60","144-MA"="red", "Fourier"="blue"),                       breaks=c("Data","144-MA","Fourier"))+
+  theme_light()
+
+p2<-autoplot(neg_ts30, series="Data") +   
+  autolayer(ma(neg_ts30,48), series="48-MA") +   
+  autolayer(fitted(F30), series = "Fourier") +   
+  xlab("30m") + ylab("freq") +   
+  ggtitle("Decomposition: Fourier terms (2) + Moving Average (48)\n30-minute granularity")+   
+  scale_colour_manual(values=c("Data"="grey60","48-MA"="red", "Fourier"="blue"),                       breaks=c("Data","48-MA","Fourier"))+
+  theme_light()
+
+p3<-autoplot(neg_ts1h, series="Data") +   
+  autolayer(ma(neg_ts1h,24), series="24-MA") +   
+  autolayer(fitted(F1h), series = "Fourier") +   
+  xlab("1h") + ylab("freq") +   
+  ggtitle("Decomposition: Fourier terms (2) + Moving Average (24)\n1-hour granularity")+   
+  scale_colour_manual(values=c("Data"="grey60","24-MA"="red", "Fourier"="blue"),                       breaks=c("Data","24-MA","Fourier"))+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+We now observe the complete fitted models:
+
+-   **Model for 10-minute series**
+
+```{r}
+model_neg10 =  tslm(neg_ts10 ~ fourier_terms10 + ma(neg_ts10, 144))
+summary(model_neg10)
+```
+
+-   **Model for 30-minute series**
+
+```{r}
+model_neg30 =  tslm(neg_ts30 ~ fourier_terms30 + ma(neg_ts30, 48))
+summary(model_neg30)
+```
+
+-   **Model for 1-hour series**
+
+```{r}
+model_neg1h =  tslm(neg_ts1h ~ fourier_terms1h + ma(neg_ts1h, 24))
+summary(model_neg1h)
+```
+
+```{r, fig.height=10}
+p1<-autoplot(neg_ts10, series="Data") +  
+  autolayer(fitted(model_neg10), series = "Model") +   
+  xlab("10m") + ylab("freq") +   
+  ggtitle("Complete Decomposition Model:\n10-minute series")+
+  scale_colour_manual(values=c("Data"="grey60","Model"="red"), 
+                      breaks=c("Data","Model"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+p2<-autoplot(neg_ts30, series="Data") +  
+  autolayer(fitted(model_neg30), series = "Model") +   
+  xlab("30m") + ylab("freq") +   
+  ggtitle("Complete Decomposition Model:\n30-minute series")+
+  scale_colour_manual(values=c("Data"="grey60","Model"="red"), 
+                      breaks=c("Data","Model"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+p3<-autoplot(neg_ts1h, series="Data") +  
+  autolayer(fitted(model_neg1h), series = "Model") +   
+  xlab("1h") + ylab("freq") +   
+  ggtitle("Complete Decomposition Model:\n1-hour series")+
+  scale_colour_manual(values=c("Data"="grey60","Model"="red"), 
+                      breaks=c("Data","Model"))+
+  scale_x_continuous(
+    labels = NULL # Remove x-axis labels
+  )+
+  theme_light()
+
+grid.arrange(p1, p2, p3, ncol=1)
+```
+
+The additive decomposition model assumes that the components combine additively: $y_t = T_t + S_t + R_t$, where trend, seasonality, and remainder sum to the observed value. il significato di aver fatto la decomposizione.
+
+### Model Evaluation
+
+Evaluate the decomposition models to select the best-fitting one.
+
+```{r, include=FALSE}
+calculate_metrics <- function(series, decomp_add, decomp_mult, stl_model, model_fourier) {
+  # Check that the series is not empty
+  if (length(series) == 0 || all(is.na(series))) {
+    stop("The time series is empty or contains only NA values.")
+  }
+  
+  # Function to compute error metrics
+  error_metrics <- function(actual, resid) {
+    # Exclude NA or invalid values
+    valid_indices <- !is.na(actual) & !is.na(resid) & actual != 0
+    
+    if (sum(valid_indices) == 0) {
+      return(c(MAE = NA, RMSE = NA, MAPE = NA)) # No valid data
+    }
+    
+    actual <- actual[valid_indices]
+    resid <- resid[valid_indices]
+    
+    # Compute metrics
+    mae <- mean(abs(resid))
+    rmse <- sqrt(mean(resid^2))
+    mape <- mean(abs(resid / actual)) * 100
+    return(c(MAE = mae, RMSE = rmse, MAPE = mape))
+  }
+  
+  # 1. Additive Decomposition
+  if (any(series <= 0)) {
+    
+    metrics_add <- c(MAE = NA, RMSE = NA, MAPE = NA)
+  } else if (is.null(decomp_add) || length(decomp_add$random) == 0) {
+    
+    metrics_add <- c(MAE = NA, RMSE = NA, MAPE = NA)
+  } else {
+    if (anyNA(decomp_add$random)) {
+      
+      resid_no_na <- na.omit(decomp_add$random)
+      metrics_add <- error_metrics(series[!is.na(decomp_add$random)], resid_no_na)
+    } else {
+      metrics_add <- error_metrics(series, decomp_add$random)
+    }
+  }
+  
+    # 2. Multiplicative Decomposition
+  if (any(series <= 0)) {
+    
+    metrics_mult <- c(MAE = NA, RMSE = NA, MAPE = NA)
+  } else if (is.null(decomp_mult) || length(decomp_mult$random) == 0) {
+    
+    metrics_mult <- c(MAE = NA, RMSE = NA, MAPE = NA)
+  } else {
+    if (anyNA(decomp_mult$random)) {
+      
+      resid_no_na <- na.omit(decomp_mult$random)
+      metrics_mult <- error_metrics(series[!is.na(decomp_mult$random)], resid_no_na)
+    } else {
+      metrics_mult <- error_metrics(series, decomp_mult$random)
+    }
+  }
+  
+  
+  # 3. STL Decomposition
+  if (is.null(stl_model) || ncol(stl_model$time.series) == 0) {
+    
+    metrics_stl <- c(MAE = NA, RMSE = NA, MAPE = NA)
+  } else if (anyNA(stl_model$time.series[, "remainder"])) {
+    
+    resid_no_na <- na.omit(stl_model$time.series[, "remainder"])
+    metrics_stl <- error_metrics(series[!is.na(stl_model$time.series[, "remainder"])], resid_no_na)
+  } else {
+    metrics_stl <- error_metrics(series, stl_model$time.series[, "remainder"])
+  }
+  
+  # 4. Fourier Model
+  if (is.null(model_fourier)) {
+    
+    metrics_fourier <- c(MAE = NA, RMSE = NA, MAPE = NA)
+  } else {
+    residuals_fourier <- residuals(model_fourier)
+    if (anyNA(residuals_fourier)) {
+      
+      resid_no_na <- na.omit(residuals_fourier)
+      metrics_fourier <- error_metrics(series[!is.na(residuals_fourier)], resid_no_na)
+    } else {
+      metrics_fourier <- error_metrics(series, residuals_fourier)
+    }
+  }
+  
+  # Final comparison metrics table
+  metrics_table <- rbind(
+    Additive = metrics_add,
+    Multiplicative = metrics_mult,
+    STL = metrics_stl,
+    Fourier = metrics_fourier
+  )
+  
+  # Return the metrics table
+  return(metrics_table)
+}
+
+```
+
+-   **Decomposition model evaluation for 10-minute granularity series**
+
+```{r}
+metrics_table10 <- calculate_metrics(
+  series = neg_ts10,
+  decomp_add = fit10A,
+  decomp_mult = fit10M, 
+  stl_model = fit10, 
+  model_fourier = model_neg10
+)
+
+metrics_table10
+```
+
+-   **Decomposition model evaluation for 30-minute granularity series**
+
+```{r}
+metrics_table30 <- calculate_metrics(
+  series = neg_ts30,
+  decomp_add = fit30A,
+  decomp_mult = fit30M, 
+  stl_model = fit30, 
+  model_fourier = model_neg30
+)
+
+metrics_table30
+```
+
+-   **Decomposition model evaluation for 1-hour granularity series**
+
+```{r}
+metrics_table1h <- calculate_metrics(
+  series = neg_ts1h, 
+  decomp_add = fit1hA,
+  decomp_mult = fit1hM, 
+  stl_model = fit1h, 
+  model_fourier = model_neg1h
+)
+
+metrics_table1h
+```
