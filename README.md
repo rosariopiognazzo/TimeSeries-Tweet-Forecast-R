@@ -34,12 +34,11 @@ Finally, the last part of the project explores the use of large language models 
 │   ├── dataset_sintetico_small.json  # Small synthetic dataset (LLM-generated)
 │   └── dataset_sintetico_large.json  # Large synthetic dataset (LLM-generated)
 ├── img/                              # Output plots
-└── Progetto_Gnazzo_Pauzano/
-    ├── descrizione-dataset.Rmd       # 1. Exploratory data analysis
-    ├── ts_analysis.Rmd               # 2. Time series analysis — sentiment score
-    ├── ts_analysis2.Rmd              # 3. Time series analysis — tweet counts
-    ├── LLMs.Rmd                      # 4. Comparison with synthetic datasets
-    └── PROMPT-SAD.txt                # Prompt used to generate synthetic datasets
+├── descrizione-dataset.Rmd       # 1. Exploratory data analysis
+├── ts_analysis.Rmd               # 2. Time series analysis — sentiment score
+├── ts_analysis2.Rmd              # 3. Time series analysis — tweet counts
+├── LLMs.Rmd                      # 4. Comparison with synthetic datasets
+└── PROMPT-SAD.txt                # Prompt used to generate synthetic datasets
 ```
 
 ---
